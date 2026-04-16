@@ -1,11 +1,11 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/examples/todo_list/tauri/gen/schemas/desktop-schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "Para-audio",
   "version": "0.1.0",
   "identifier": "com.paraaudio.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },
@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Local-first transcription and notes desktop app.",
+    "longDescription": "Para-audio is a local-first desktop app for transcription, notes, and meeting capture.",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
