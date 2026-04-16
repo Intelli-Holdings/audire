@@ -1,0 +1,81 @@
+[package]
+name = "para-audio"
+version = "0.1.0"
+description = "Para-audio — local-first transcription + notes"
+authors = ["Para-audio"]
+edition = "2021"
+license = "MIT"
+default-run = "para-audio"
+
+[lib]
+name = "para_audio"
+path = "src/lib.rs"
+
+[[bin]]
+name = "para-audio"
+path = "src/main.rs"
+
+[[bin]]
+name = "para_audio_keytool"
+path = "src/bin/para_audio_keytool.rs"
+
+# Size-conscious release profile (Tauri v2 app size tips)
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5"
+
+# Async + websockets (Rustls for portability, no OpenSSL at runtime)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+http = "1"
+
+# Audio
+cpal = "0.15"
+ringbuf = "0.4"
+
+# Local encrypted DB (SQLCipher bundled with vendored OpenSSL)
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+# KeyVault (OS credential stores: Keychain / Credential Manager / Secret Service)
+keyring = "3"
+
+# Optional LLM gateways (default OFF — enable via --features llm_openai,llm_anthropic)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+
+# Windows system audio capture (WASAPI loopback)
+[target.'cfg(windows)'.dependencies]
+wasapi = { version = "0.16", optional = true }
+
+[features]
+# Default features: enable ASR providers + platform system audio backend.
+# On Windows: sys_audio_windows pulls in WASAPI.
+# macOS/Linux backends use cpal/process spawning and don't need extra deps.
+default = ["asr_deepgram", "asr_assemblyai", "sys_audio_windows"]
+# ASR providers (always compiled; actual usage requires BYOK)
+asr_deepgram = []
+asr_assemblyai = []
+# Optional LLM gateways
+llm_openai = ["dep:reqwest"]
+llm_anthropic = ["dep:reqwest"]
+# OS system audio backends
+sys_audio_windows = ["dep:wasapi"]
+sys_audio_macos_sck = []
+sys_audio_linux_monitor = []

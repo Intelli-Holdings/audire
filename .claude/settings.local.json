@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(bun:*)",
+      "Bash(yarn:*)",
+      "Bash(rm:*)",
+      "Bash(bunx tauri:*)",
+      "Bash(rustup:*)",
+      "WebFetch(domain:developers.deepgram.com)",
+      "WebFetch(domain:www.assemblyai.com)"
+    ]
+  }
+}
