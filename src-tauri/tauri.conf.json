@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Audire",
   "version": "0.1.0",
-  "identifier": "com.audire.app",
+  "identifier": "com.audire.desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build",
@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/icon.ico"
+    ],
     "category": "Productivity",
     "shortDescription": "Local-first transcription and notes desktop app.",
     "longDescription": "Audire is a local-first desktop app for transcription, notes, and meeting capture.",
