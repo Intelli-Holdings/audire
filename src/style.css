@@ -1,4 +1,4 @@
-/* Para-audio — Granola-inspired dark theme */
+/* Audire — Granola-inspired dark theme */
 
 :root {
   --bg-primary: #1c1c1e;
@@ -418,7 +418,7 @@ body {
   color: var(--text-primary);
 }
 .notes-editor:empty::before {
-  content: 'Start typing your notes... Para-audio will combine them with the transcript.';
+  content: 'Start typing your notes... Audire will combine them with the transcript.';
   color: var(--text-muted);
 }
 .notes-editor h2 { font-size: 18px; margin: 16px 0 8px; color: var(--text-accent); }

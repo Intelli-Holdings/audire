@@ -252,7 +252,7 @@ async function renderHome() {
               </div>
             </div>
             <p class="text-muted" style="padding: 8px 14px; font-size: 13px;">
-              Para-audio captures audio in the background during your Google Meet, Teams, or Zoom calls.
+              Audire captures audio in the background during your Google Meet, Teams, or Zoom calls.
               No bots join your meeting -- just local audio capture.
             </p>
           </div>
@@ -764,7 +764,7 @@ async function renderSettings() {
       <div class="settings-section">
         <h2>About</h2>
         <p style="font-size:13px; color:var(--text-secondary);">
-          Para-audio &mdash; local-first meeting transcription.<br/>
+          Audire &mdash; local-first meeting transcription.<br/>
           Privacy-first: no audio written to disk, BYOK keys, encrypted DB.
         </p>
       </div>

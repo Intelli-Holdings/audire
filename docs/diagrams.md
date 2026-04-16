@@ -1,4 +1,4 @@
-# Para-audio Architecture Diagrams
+# Audire Architecture Diagrams
 
 ## Component diagram
 

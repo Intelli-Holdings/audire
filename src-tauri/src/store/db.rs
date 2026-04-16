@@ -24,11 +24,11 @@ impl LocalStore {
     /// Open (or create) the default DB in the app data directory.
     /// If `db_key` is Some, applies SQLCipher PRAGMA key before any operations.
     pub fn open_default(db_key: Option<&str>) -> Result<Self> {
-        let proj = ProjectDirs::from("com", "paraaudio", "Para-audio")
+        let proj = ProjectDirs::from("com", "audire", "Audire")
             .ok_or_else(|| ParaError::Db("failed to resolve project dirs".into()))?;
         let dir = proj.data_dir();
         std::fs::create_dir_all(dir).map_err(|e| ParaError::Db(e.to_string()))?;
-        let db_path = dir.join("para_audio.db");
+        let db_path = dir.join("audire.db");
 
         let conn = Connection::open(&db_path).map_err(|e| ParaError::Db(e.to_string()))?;
 
@@ -272,7 +272,7 @@ impl LocalStore {
         let out_path = export_dir.join(format!("meeting-{}.md", meeting_id));
 
         let mut md = String::new();
-        md.push_str("# Para-audio Export\n\n");
+        md.push_str("# Audire Export\n\n");
         md.push_str(&format!("Meeting: `{}`\n\n", meeting_id));
 
         md.push_str("## Notes\n\n");

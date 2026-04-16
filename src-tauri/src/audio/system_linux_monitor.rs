@@ -59,7 +59,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
         })?;
 
         let dev_name = device.name().unwrap_or_else(|_| "unknown".to_string());
-        eprintln!("[para-audio] Linux: using monitor source: {}", dev_name);
+        eprintln!("[audire] Linux: using monitor source: {}", dev_name);
 
         let supported = device
             .default_input_config()
@@ -77,7 +77,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
         let stop_flag_stream = stop_flag.clone();
 
         let err_fn = |err: cpal::StreamError| {
-            eprintln!("[para-audio] linux monitor stream error: {}", err);
+            eprintln!("[audire] linux monitor stream error: {}", err);
         };
 
         let stream = match supported.sample_format() {
@@ -133,7 +133,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                 let send_stream = SendStream(stream);
                 let stop_park = stop_flag.clone();
                 let handle = std::thread::Builder::new()
-                    .name("para-audio-linux-monitor-f32".into())
+                    .name("audire-linux-monitor-f32".into())
                     .spawn(move || {
                         let _s = send_stream; // keep alive
                         while !stop_park.load(Ordering::Relaxed) {
@@ -171,7 +171,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
         let send_stream = SendStream(stream);
         let stop_park = stop_flag.clone();
         let handle = std::thread::Builder::new()
-            .name("para-audio-linux-monitor".into())
+            .name("audire-linux-monitor".into())
             .spawn(move || {
                 let _s = send_stream;
                 while !stop_park.load(Ordering::Relaxed) {

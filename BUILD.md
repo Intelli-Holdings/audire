@@ -1,4 +1,4 @@
-# Para-audio Build & Packaging Guide
+# Audire Build & Packaging Guide
 
 This project can use **Bun** in the Tauri config. You do **not** need to use npm for the Tauri hooks. The `beforeDevCommand` and `beforeBuildCommand` values can call Bun directly.
 
@@ -66,7 +66,7 @@ Run this on a **Windows** machine.
 ### Build command
 
 ```bat
-cd C:\Repos\para-audio
+cd C:\Repos\audire
 bun tauri build
 ```
 
@@ -109,7 +109,7 @@ Run this on a **Linux** machine.
 ### Build command
 
 ```bash
-cd /path/to/para-audio
+cd /path/to/audire
 bun tauri build
 ```
 
@@ -156,7 +156,7 @@ Run this on a **macOS** machine.
 ### Build command
 
 ```bash
-cd /path/to/para-audio
+cd /path/to/audire
 bun tauri build
 ```
 

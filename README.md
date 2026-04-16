@@ -1,6 +1,6 @@
-# Para-audio
+# Audire
 
-Para-audio is a local-first desktop app (macOS, Windows, Linux) built with Tauri v2: Rust native core + system WebView UI.
+Audire is a local-first desktop app (macOS, Windows, Linux) built with Tauri v2: Rust native core + system WebView UI.
 
 It "listens alongside you" (microphone + system audio) and performs real-time transcription via streaming ASR providers (Deepgram Flux v2 / AssemblyAI Universal-3 Pro), stores transcripts + notes locally (encrypted), and optionally runs post-processing "Recipes" via cloud LLM gateways (OpenAI / Anthropic) behind feature flags.
 
@@ -58,24 +58,24 @@ Or set environment variables directly:
 
 ```powershell
 # Windows PowerShell
-$env:PARAAUDIO_DEEPGRAM_API_KEY="your-key-here"
-$env:PARAAUDIO_ASSEMBLYAI_API_KEY="your-key-here"
+$env:AUDIRE_DEEPGRAM_API_KEY="your-key-here"
+$env:AUDIRE_ASSEMBLYAI_API_KEY="your-key-here"
 # Optional LLM keys (only if feature flags enabled)
-$env:PARAAUDIO_OPENAI_API_KEY="your-key-here"
-$env:PARAAUDIO_ANTHROPIC_API_KEY="your-key-here"
+$env:AUDIRE_OPENAI_API_KEY="your-key-here"
+$env:AUDIRE_ANTHROPIC_API_KEY="your-key-here"
 ```
 
 ```bash
 # macOS/Linux
-export PARAAUDIO_DEEPGRAM_API_KEY="your-key-here"
-export PARAAUDIO_ASSEMBLYAI_API_KEY="your-key-here"
+export AUDIRE_DEEPGRAM_API_KEY="your-key-here"
+export AUDIRE_ASSEMBLYAI_API_KEY="your-key-here"
 ```
 
 Or store in OS keyring using the included keytool:
 ```bash
-cargo run -p para-audio --bin para_audio_keytool -- set deepgram YOUR_KEY
-cargo run -p para-audio --bin para_audio_keytool -- set assemblyai YOUR_KEY
-cargo run -p para-audio --bin para_audio_keytool -- set dbkey RANDOM_32B_HEX_OR_PASSPHRASE
+cargo run -p audire --bin audire_keytool -- set deepgram YOUR_KEY
+cargo run -p audire --bin audire_keytool -- set assemblyai YOUR_KEY
+cargo run -p audire --bin audire_keytool -- set dbkey RANDOM_32B_HEX_OR_PASSPHRASE
 ```
 
 Or use the **in-app Settings UI**: click your user profile in the sidebar bottom to open Settings, where you can save/delete API keys per provider. Keys are stored in the OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service).
@@ -119,9 +119,9 @@ Or use the **in-app Settings UI**: click your user profile in the sidebar bottom
 - System audio captured via ScreenCaptureKit helper binary.
 - **Requires Screen Recording permission**:
   1. Open **System Settings** > **Privacy & Security** > **Screen Recording**
-  2. Enable Para-audio (or the Terminal if running in dev mode)
-  3. You may need to restart Para-audio after granting permission
-- If the helper binary is missing or permission is denied, the app will show a clear error message.
+  2. Enable Audire (or the Terminal if running in dev mode)
+  3. You may need to restart Audire after granting permission
+- If the helper binary is missing or permission is denied, Audire will show a clear error message.
 
 ### Linux
 - System audio captured from PulseAudio/PipeWire monitor sources.
@@ -188,7 +188,7 @@ index.html + src/main.js + src/style.css  (Tauri WebView UI)
 src-tauri/src/
   lib.rs            — Tauri app setup
   main.rs           — entry point
-  error.rs          — ParaError types
+  error.rs          — AudireError types
   state.rs          — AppState (store, keyvault, tokio runtime)
   ipc.rs            — Tauri commands (capture, notes, keys, participants, orgs)
   audio/
@@ -219,7 +219,13 @@ src-tauri/src/
     openai.rs       — optional OpenAI gateway stub
     anthropic.rs    — optional Anthropic gateway stub
   bin/
-    para_audio_keytool.rs — CLI for storing keys in OS keyring
+    audire_keytool.rs — CLI for storing keys in OS keyring
+```
+
+## macOS helper
+
+```
+src-tauri/helpers/audire_sck_helper.swift
 ```
 
 ## Sources (primary references)

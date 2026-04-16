@@ -10,14 +10,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "Building para_audio_sck_helper..."
+echo "Building audire_sck_helper..."
 swiftc -O \
-    -o para_audio_sck_helper \
-    para_audio_sck_helper.swift \
+    -o audire_sck_helper \
+    audire_sck_helper.swift \
     -framework ScreenCaptureKit \
     -framework CoreMedia \
     -framework AVFoundation
 
-echo "Built: $SCRIPT_DIR/para_audio_sck_helper"
-ls -la para_audio_sck_helper
+echo "Built: $SCRIPT_DIR/audire_sck_helper"
+ls -la audire_sck_helper
 echo "Copy this binary to the Tauri bundle Resources or MacOS directory."

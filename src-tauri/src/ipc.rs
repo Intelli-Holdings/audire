@@ -114,7 +114,7 @@ pub fn stop_capture(state: tauri::State<'_, AppState>, meeting_id: String) -> Re
 // ---- append_note ----
 
 /// IPC: append_note { meetingId, text }
-/// Notes are the user's "lead" — Para-audio combines them with transcript during recipes.
+/// Notes are the user's "lead" — Audire combines them with transcript during recipes.
 #[tauri::command]
 pub fn append_note(
     state: tauri::State<'_, AppState>,

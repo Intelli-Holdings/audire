@@ -22,7 +22,7 @@ pub struct CaptureHandle {
 
 impl AppState {
     pub fn new() -> Result<Self> {
-        let keyvault = KeyVault::new("para-audio");
+        let keyvault = KeyVault::new("audire");
 
         // Try to get db encryption key from keyvault
         let db_key = keyvault.get_provider_key("dbkey");

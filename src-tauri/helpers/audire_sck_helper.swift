@@ -1,9 +1,9 @@
 #!/usr/bin/env swift
 //
-// para_audio_sck_helper — macOS ScreenCaptureKit audio capture helper.
+// audire_sck_helper — macOS ScreenCaptureKit audio capture helper.
 //
 // Captures system audio output via ScreenCaptureKit and writes raw i16 PCM
-// (interleaved stereo, 48 kHz) to stdout. The main Para-audio Rust process
+// (interleaved stereo, 48 kHz) to stdout. The main Audire Rust process
 // reads from this process's stdout.
 //
 // No audio is written to disk.
@@ -13,7 +13,7 @@
 // - Screen Recording permission (System Settings > Privacy & Security > Screen Recording)
 //
 // Build:
-//   swiftc -O -o para_audio_sck_helper para_audio_sck_helper.swift \
+//   swiftc -O -o audire_sck_helper audire_sck_helper.swift \
 //     -framework ScreenCaptureKit -framework CoreMedia -framework AVFoundation
 //
 // Reference:

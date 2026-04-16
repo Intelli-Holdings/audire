@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Para-audio",
+  "productName": "Audire",
   "version": "0.1.0",
-  "identifier": "com.paraaudio.app",
+  "identifier": "com.audire.app",
   "build": {
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Para-audio",
+        "title": "Audire",
         "width": 1080,
         "height": 760,
         "resizable": true,
@@ -29,7 +29,7 @@
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "Local-first transcription and notes desktop app.",
-    "longDescription": "Para-audio is a local-first desktop app for transcription, notes, and meeting capture.",
+    "longDescription": "Audire is a local-first desktop app for transcription, notes, and meeting capture.",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

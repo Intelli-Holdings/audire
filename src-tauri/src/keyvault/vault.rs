@@ -24,11 +24,11 @@ impl KeyVault {
     pub fn get_provider_key(&self, provider: &str) -> Option<String> {
         // 1. Check environment variables (simplifies MVP; no UI key entry yet).
         let env_key = match provider {
-            "deepgram" => std::env::var("PARAAUDIO_DEEPGRAM_API_KEY").ok(),
-            "assemblyai" => std::env::var("PARAAUDIO_ASSEMBLYAI_API_KEY").ok(),
-            "openai" => std::env::var("PARAAUDIO_OPENAI_API_KEY").ok(),
-            "anthropic" => std::env::var("PARAAUDIO_ANTHROPIC_API_KEY").ok(),
-            "dbkey" => std::env::var("PARAAUDIO_DB_KEY").ok(),
+            "deepgram" => std::env::var("AUDIRE_DEEPGRAM_API_KEY").ok(),
+            "assemblyai" => std::env::var("AUDIRE_ASSEMBLYAI_API_KEY").ok(),
+            "openai" => std::env::var("AUDIRE_OPENAI_API_KEY").ok(),
+            "anthropic" => std::env::var("AUDIRE_ANTHROPIC_API_KEY").ok(),
+            "dbkey" => std::env::var("AUDIRE_DB_KEY").ok(),
             _ => None,
         };
         if env_key.is_some() {

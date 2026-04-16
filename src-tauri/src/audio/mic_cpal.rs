@@ -48,7 +48,7 @@ pub fn start_mic_capture(seconds_ring: u32) -> Result<MicCapture> {
     let (mut prod, cons) = ring::create_ring(capacity);
 
     let err_fn = |err: cpal::StreamError| {
-        eprintln!("[para-audio] cpal mic stream error: {}", err);
+        eprintln!("[audire] cpal mic stream error: {}", err);
     };
 
     let stream = match supported.sample_format() {
@@ -106,7 +106,7 @@ fn start_mic_capture_f32(
     let (mut prod, cons) = ring::create_ring(capacity);
 
     let err_fn = |err: cpal::StreamError| {
-        eprintln!("[para-audio] cpal mic stream error: {}", err);
+        eprintln!("[audire] cpal mic stream error: {}", err);
     };
 
     let stream = device

@@ -36,12 +36,12 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
         let stop_flag_thread = stop_flag.clone();
 
         // Locate the helper binary in the app bundle.
-        // In dev: ./src-tauri/helpers/para_audio_sck_helper
-        // In release bundle: ../MacOS/para_audio_sck_helper or ../Resources/
+        // In dev: ./src-tauri/helpers/audire_sck_helper
+        // In release bundle: ../MacOS/audire_sck_helper or ../Resources/
         let helper_path = find_sck_helper()?;
 
         let handle = std::thread::Builder::new()
-            .name("para-audio-sck-capture".into())
+            .name("audire-sck-capture".into())
             .spawn(move || {
                 use std::io::Read;
                 use std::process::{Command, Stdio};
@@ -54,7 +54,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                     Ok(c) => c,
                     Err(e) => {
                         eprintln!(
-                            "[para-audio] SCK helper spawn failed: {}. \
+                            "[audire] SCK helper spawn failed: {}. \
                              Ensure Screen Recording permission is granted in \
                              System Settings > Privacy & Security > Screen Recording.",
                             e
@@ -85,7 +85,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                             }
                         }
                         Err(e) => {
-                            eprintln!("[para-audio] SCK helper read error: {}", e);
+                            eprintln!("[audire] SCK helper read error: {}", e);
                             break;
                         }
                     }
@@ -100,7 +100,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                     let mut err_msg = String::new();
                     let _ = stderr.read_to_string(&mut err_msg);
                     if !err_msg.is_empty() {
-                        eprintln!("[para-audio] SCK helper stderr: {}", err_msg);
+                        eprintln!("[audire] SCK helper stderr: {}", err_msg);
                     }
                 }
             })
@@ -136,7 +136,7 @@ fn find_sck_helper() -> Result<std::path::PathBuf> {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
     if let Some(ref dir) = exe_dir {
-        let candidate = dir.join("para_audio_sck_helper");
+        let candidate = dir.join("audire_sck_helper");
         if candidate.exists() {
             return Ok(candidate);
         }
@@ -146,7 +146,7 @@ fn find_sck_helper() -> Result<std::path::PathBuf> {
     if let Some(ref dir) = exe_dir {
         let candidate = dir
             .parent()
-            .map(|d| d.join("Resources").join("para_audio_sck_helper"));
+            .map(|d| d.join("Resources").join("audire_sck_helper"));
         if let Some(c) = candidate {
             if c.exists() {
                 return Ok(c);
@@ -155,14 +155,14 @@ fn find_sck_helper() -> Result<std::path::PathBuf> {
     }
 
     // 3. Dev mode: helpers directory
-    let dev_candidate = std::path::PathBuf::from("helpers/para_audio_sck_helper");
+    let dev_candidate = std::path::PathBuf::from("helpers/audire_sck_helper");
     if dev_candidate.exists() {
         return Ok(dev_candidate);
     }
 
     Err(ParaError::Audio(
         "ScreenCaptureKit helper binary not found. \
-         macOS system audio capture requires the para_audio_sck_helper binary. \
+         macOS system audio capture requires the audire_sck_helper binary. \
          See README for build instructions. \
          Grant Screen Recording permission in System Settings > Privacy & Security."
             .into(),

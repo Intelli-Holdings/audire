@@ -1,4 +1,4 @@
-# Contributing to Para-audio
+# Contributing to Audire
 
 Thanks for your interest in contributing! This guide covers the development setup and conventions.
 
@@ -12,8 +12,8 @@ Thanks for your interest in contributing! This guide covers the development setu
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/para-audio.git
-cd para-audio
+git clone https://github.com/your-org/audire.git
+cd audire
 
 # Install JS dependencies
 bun install
@@ -35,7 +35,7 @@ src-tauri/src/
   lib.rs                — Tauri app builder + command registration
   ipc.rs                — All IPC command handlers
   state.rs              — Shared AppState
-  error.rs              — ParaError enum
+  error.rs              — AudireError enum
   audio/                — Mic + system audio capture per platform
   asr/                  — Streaming ASR provider clients
   store/db.rs           — SQLCipher DB, migrations, queries

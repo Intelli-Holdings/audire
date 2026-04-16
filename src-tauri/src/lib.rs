@@ -37,5 +37,5 @@ pub fn run() {
             ipc::list_organizations,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Para-audio");
+        .expect("error while running Audire");
 }

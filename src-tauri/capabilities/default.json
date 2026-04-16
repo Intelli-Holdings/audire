@@ -1,6 +1,6 @@
 {
   "identifier": "main-capability",
-  "description": "Main window capability for Para-audio. Enables core IPC + event permissions. No broad filesystem/plugin access.",
+  "description": "Main window capability for Audire. Enables core IPC + event permissions. No broad filesystem/plugin access.",
   "windows": ["main"],
   "permissions": [
     "core:default",

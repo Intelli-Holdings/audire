@@ -1,23 +1,23 @@
 [package]
-name = "para-audio"
+name = "audire"
 version = "0.1.0"
-description = "Para-audio — local-first transcription + notes"
-authors = ["Para-audio"]
+description = "Audire — local-first transcription + notes"
+authors = ["Audire"]
 edition = "2021"
 license = "MIT"
-default-run = "para-audio"
+default-run = "audire"
 
 [lib]
-name = "para_audio"
+name = "audire"
 path = "src/lib.rs"
 
 [[bin]]
-name = "para-audio"
+name = "audire"
 path = "src/main.rs"
 
 [[bin]]
-name = "para_audio_keytool"
-path = "src/bin/para_audio_keytool.rs"
+name = "audire_keytool"
+path = "src/bin/audire_keytool.rs"
 
 # Size-conscious release profile (Tauri v2 app size tips)
 [profile.release]

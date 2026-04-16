@@ -42,11 +42,11 @@ pub fn start_capture(
 
         let mode = mode.to_string();
         let handle = std::thread::Builder::new()
-            .name("para-audio-wasapi-loopback".into())
+            .name("audire-wasapi-loopback".into())
             .spawn(move || {
                 // COM init on this thread (MTA for background capture).
                 if initialize_mta().is_err() {
-                    eprintln!("[para-audio] WASAPI: COM MTA init failed");
+                    eprintln!("[audire] WASAPI: COM MTA init failed");
                     return;
                 }
 
@@ -54,7 +54,7 @@ pub fn start_capture(
                     // Per-process loopback (Windows 10 20348+ / Windows 11)
                     // Reference: https://docs.rs/wasapi/latest/wasapi/struct.AudioClient.html
                     let pid = target_pid.unwrap();
-                    eprintln!("[para-audio] WASAPI: attempting per-process loopback for PID {}", pid);
+                    eprintln!("[audire] WASAPI: attempting per-process loopback for PID {}", pid);
                     // Note: new_application_loopback_client may not be available on older wasapi crate versions.
                     // If unavailable, falls through to the error below.
                     Err(format!("per-process loopback not yet supported in wasapi 0.16; PID={}", pid))
@@ -66,13 +66,13 @@ pub fn start_capture(
                 let (audio_client, h_event, capture_client) = match audio_client_result {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("[para-audio] WASAPI: init failed: {}", e);
+                        eprintln!("[audire] WASAPI: init failed: {}", e);
                         return;
                     }
                 };
 
                 if let Err(e) = audio_client.start_stream() {
-                    eprintln!("[para-audio] WASAPI: start_stream: {}", e);
+                    eprintln!("[audire] WASAPI: start_stream: {}", e);
                     return;
                 }
 
@@ -88,7 +88,7 @@ pub fn start_capture(
                     match capture_client.read_from_device_to_deque(&mut buf) {
                         Ok(_) => {}
                         Err(e) => {
-                            eprintln!("[para-audio] WASAPI: read error: {}", e);
+                            eprintln!("[audire] WASAPI: read error: {}", e);
                             break;
                         }
                     }
