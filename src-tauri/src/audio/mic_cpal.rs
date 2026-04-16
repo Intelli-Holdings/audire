@@ -9,6 +9,7 @@ use ringbuf::{traits::Producer, HeapCons};
 /// Safety: cpal::Stream is a handle to the platform audio system. The actual
 /// audio callback runs on cpal's dedicated thread. Moving the handle between
 /// threads is safe; we only use it for lifetime management (drop = stop capture).
+#[allow(dead_code)]
 struct SendStream(cpal::Stream);
 // SAFETY: see above — the Stream is just a handle/guard.
 unsafe impl Send for SendStream {}

@@ -15,13 +15,18 @@
 // Reference: https://developer.apple.com/videos/play/wwdc2022/10156/
 // Apple sample: https://github.com/Fidetro/CapturingScreenContentInMacOS
 
-use crate::audio::ring;
 use crate::audio::system_capture::SystemCapture;
-use crate::audio::types::PcmFormat;
 use crate::error::{ParaError, Result};
 
+#[cfg(target_os = "macos")]
+use crate::audio::ring;
+#[cfg(target_os = "macos")]
+use crate::audio::types::PcmFormat;
+#[cfg(target_os = "macos")]
 use ringbuf::traits::Producer;
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Start macOS system audio capture via ScreenCaptureKit helper.

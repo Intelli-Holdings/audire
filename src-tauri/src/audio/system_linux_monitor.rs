@@ -15,13 +15,18 @@
 // - PulseAudio monitor sources: https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/Modules/
 // - PipeWire pw-cat: https://www.mankier.com/1/pw-cat
 
-use crate::audio::ring;
 use crate::audio::system_capture::SystemCapture;
-use crate::audio::types::PcmFormat;
 use crate::error::{ParaError, Result};
 
+#[cfg(target_os = "linux")]
+use crate::audio::ring;
+#[cfg(target_os = "linux")]
+use crate::audio::types::PcmFormat;
+#[cfg(target_os = "linux")]
 use ringbuf::traits::Producer;
+#[cfg(target_os = "linux")]
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Start Linux system audio capture by finding a monitor source.
