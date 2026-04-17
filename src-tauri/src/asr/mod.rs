@@ -155,7 +155,7 @@ pub async fn run_pipeline(
     });
 
     // 5. Spawn sender task (audio ring -> resample -> WSS)
-    let mut send_handle = spawn_audio_sender(mic, sys_result.ok(), ws_tx_send);
+    let mut send_handle = spawn_audio_sender(app.clone(), mic, sys_result.ok(), ws_tx_send);
 
     // 6. Wait for stop signal
     tokio::select! {
@@ -234,6 +234,7 @@ fn start_system_audio(config: &CaptureConfig) -> Result<audio::system_capture::S
 
 /// Spawn a task that drains audio ring buffers, resamples, and sends to WSS.
 fn spawn_audio_sender(
+    app: tauri::AppHandle,
     mic: Option<audio::mic_cpal::MicCapture>,
     sys: Option<audio::system_capture::SystemCapture>,
     ws_tx: tokio::sync::mpsc::Sender<Message>,
@@ -299,6 +300,12 @@ fn spawn_audio_sender(
                 continue;
             }
 
+            let level = compute_audio_level(&mono_48k);
+            let _ = app.emit(
+                "asr:audio_level",
+                serde_json::json!({ "level": level }),
+            );
+
             let input_sr = sys_fmt
                 .map(|f| f.sample_rate)
                 .or_else(|| mic_fmt.map(|f| f.sample_rate))
@@ -320,4 +327,17 @@ fn spawn_audio_sender(
             }
         }
     })
+}
+
+fn compute_audio_level(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+
+    let sum_squares = samples.iter().fold(0.0f64, |acc, sample| {
+        let normalized = *sample as f64 / i16::MAX as f64;
+        acc + normalized * normalized
+    });
+    let rms = (sum_squares / samples.len() as f64).sqrt() as f32;
+    (rms * 5.5).clamp(0.0, 1.0)
 }

@@ -1680,6 +1680,94 @@ impl LocalStore {
         }
         Ok(out)
     }
+
+    pub fn upsert_calendar_account(
+        &self,
+        provider: &str,
+        email: Option<&str>,
+        display_name: Option<&str>,
+    ) -> Result<CalendarAccountRow> {
+        let now = Utc::now().timestamp();
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "INSERT INTO calendar_accounts(provider, email, display_name, connected_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(provider) DO UPDATE SET
+               email=excluded.email,
+               display_name=excluded.display_name,
+               updated_at=excluded.updated_at",
+            params![provider, email, display_name, now],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+
+        Ok(CalendarAccountRow {
+            provider: provider.to_string(),
+            email: email.map(|s| s.to_string()),
+            display_name: display_name.map(|s| s.to_string()),
+            connected_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn get_calendar_account(&self, provider: &str) -> Result<Option<CalendarAccountRow>> {
+        let conn = self.inner.lock().unwrap();
+        conn.query_row(
+            "SELECT provider, email, display_name, connected_at, updated_at
+             FROM calendar_accounts
+             WHERE provider=?1",
+            params![provider],
+            |row| {
+                Ok(CalendarAccountRow {
+                    provider: row.get(0)?,
+                    email: row.get(1)?,
+                    display_name: row.get(2)?,
+                    connected_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| ParaError::Db(e.to_string()))
+    }
+
+    pub fn list_calendar_accounts(&self) -> Result<Vec<CalendarAccountRow>> {
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider, email, display_name, connected_at, updated_at
+                 FROM calendar_accounts
+                 ORDER BY provider ASC",
+            )
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CalendarAccountRow {
+                    provider: row.get(0)?,
+                    email: row.get(1)?,
+                    display_name: row.get(2)?,
+                    connected_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| ParaError::Db(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    pub fn delete_calendar_account(&self, provider: &str) -> Result<()> {
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "DELETE FROM calendar_accounts WHERE provider=?1",
+            params![provider],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
 }
 
 fn format_segment(seg: &SegmentRow) -> String {
@@ -1770,6 +1858,36 @@ pub struct OrganizationRow {
     pub created_at: i64,
     pub people_count: i64,
     pub last_meeting_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarAccountRow {
+    pub provider: String,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+    pub connected_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarConfigRow {
+    pub provider: String,
+    pub configured: bool,
+    pub connected: bool,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpcomingCalendarEventRow {
+    pub provider: String,
+    pub account_email: Option<String>,
+    pub external_id: String,
+    pub title: String,
+    pub start: String,
+    pub end: String,
+    pub organizer: Option<String>,
+    pub location: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2000,6 +2118,14 @@ fn migrate(conn: &Connection) -> Result<()> {
             user_id TEXT,
             email TEXT,
             active_org_id TEXT,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS calendar_accounts(
+            provider TEXT PRIMARY KEY,
+            email TEXT,
+            display_name TEXT,
+            connected_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
 

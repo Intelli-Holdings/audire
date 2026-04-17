@@ -92,4 +92,21 @@ impl KeyVault {
         entry.delete_credential()?;
         Ok(())
     }
+
+    pub fn get_secret(&self, name: &str) -> Option<String> {
+        let entry = Entry::new(&self.service, name).ok()?;
+        entry.get_password().ok()
+    }
+
+    pub fn set_secret(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        let entry = Entry::new(&self.service, name)?;
+        entry.set_password(value)?;
+        Ok(())
+    }
+
+    pub fn delete_secret(&self, name: &str) -> anyhow::Result<()> {
+        let entry = Entry::new(&self.service, name)?;
+        entry.delete_credential()?;
+        Ok(())
+    }
 }

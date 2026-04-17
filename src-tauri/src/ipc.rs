@@ -3,11 +3,12 @@ use tauri::{Emitter, Manager};
 use crate::asr;
 use crate::error::{ParaError, Result};
 use crate::llm::recipe;
-use crate::services::{folders, keys, meeting_notes, retrieval};
+use crate::services::{calendar, folders, keys, meeting_notes, retrieval};
 use crate::state::{AppState, CaptureHandle, SessionContext};
 use crate::store::db::{
-    FolderRow, MeetingDetailRow, MeetingWithNotes, NoteRow, OrgSharedKeyStatusRow, OrganizationRow,
-    ParticipantRow, SegmentRow, StandaloneNoteRow, StructuredMeetingNote,
+    CalendarConfigRow, FolderRow, MeetingDetailRow, MeetingWithNotes, NoteRow,
+    OrgSharedKeyStatusRow, OrganizationRow, ParticipantRow, SegmentRow, StandaloneNoteRow,
+    StructuredMeetingNote, UpcomingCalendarEventRow,
 };
 
 use serde::Serialize;
@@ -17,6 +18,56 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct StartCaptureResp {
     pub meeting_id: String,
+}
+
+// ---- Calendar Integrations ----
+
+#[tauri::command]
+pub fn list_calendar_statuses(state: tauri::State<'_, AppState>) -> Result<Vec<CalendarConfigRow>> {
+    calendar::list_provider_statuses(&state.store, &state.keyvault)
+}
+
+#[tauri::command]
+pub fn save_calendar_config(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    client_id: String,
+    tenant_id: Option<String>,
+) -> Result<()> {
+    calendar::save_provider_config(
+        &state.keyvault,
+        &provider,
+        &client_id,
+        tenant_id.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn disconnect_calendar_provider(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+) -> Result<()> {
+    calendar::disconnect_provider(&state.store, &state.keyvault, &provider)
+}
+
+#[tauri::command]
+pub async fn connect_calendar_provider(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+) -> Result<CalendarConfigRow> {
+    calendar::connect_provider(&state.store, &state.keyvault, &provider).await?;
+    let statuses = calendar::list_provider_statuses(&state.store, &state.keyvault)?;
+    statuses
+        .into_iter()
+        .find(|row| row.provider == provider)
+        .ok_or_else(|| ParaError::Other("calendar provider status missing after connect".into()))
+}
+
+#[tauri::command]
+pub async fn list_upcoming_calendar_events(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<UpcomingCalendarEventRow>> {
+    calendar::list_upcoming_events(&state.store, &state.keyvault).await
 }
 
 /// IPC: start_capture { provider, mode?, includeMic?, targetProcess? }
@@ -393,6 +444,15 @@ pub fn set_meeting_template(
 ) -> Result<()> {
     let normalized = meeting_notes::normalize_template_kind(Some(&template_kind));
     state.store.set_meeting_template(&meeting_id, &normalized)
+}
+
+#[tauri::command]
+pub fn update_meeting_title(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    title: String,
+) -> Result<()> {
+    state.store.update_meeting_title(&meeting_id, &title)
 }
 
 #[tauri::command]
