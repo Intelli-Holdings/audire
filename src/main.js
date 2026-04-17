@@ -10,6 +10,18 @@ const finals = [];
 let partialText = '';
 let currentStandaloneNoteId = null;
 const keyStatusCache = {};
+let meetingSegments = [];
+let currentStructuredNote = null;
+let currentMeeting = null;
+let meetingUserNotes = [];
+let meetingTemplates = [];
+let foldersCache = [];
+let currentFolderId = null;
+let captureStartedAt = null;
+let captureTimerHandle = null;
+let captureRuntimeStatusText = 'Listening';
+let capturePreviewText = 'Waiting for speech...';
+let selectedCaptureProvider = 'deepgram';
 
 // ---- Elements ----
 const content = document.getElementById('content');
@@ -17,31 +29,82 @@ const searchModal = document.getElementById('searchModal');
 const searchInput = document.getElementById('searchInput');
 const captureBar = document.getElementById('captureBar');
 const captureStatus = document.getElementById('captureStatus');
+const captureRuntimeStatus = document.getElementById('captureRuntimeStatus');
+const capturePreview = document.getElementById('capturePreview');
+const captureTimer = document.getElementById('captureTimer');
 const captureStopBtn = document.getElementById('captureStopBtn');
 
 // ---- Event listeners from Tauri ----
-await listen('asr:partial', (event) => {
-  partialText = event.payload?.text || '';
-  updateTranscript();
-});
-
-await listen('asr:final', (event) => {
-  const t = event.payload?.text || '';
-  const ts = event.payload?.ts_ms || Date.now();
-  const prov = event.payload?.provider || '';
-  if (t) {
-    finals.push({ text: t, ts_ms: ts, provider: prov });
-    partialText = '';
+async function registerTauriListeners() {
+  await listen('asr:partial', (event) => {
+    partialText = event.payload?.text || '';
+    if (partialText) {
+      capturePreviewText = partialText;
+      updateCapturePillText();
+    }
     updateTranscript();
-  }
-});
+  });
 
-await listen('asr:status', (event) => {
-  const s = event.payload?.status || '';
-  if (s && captureStatus) {
-    captureStatus.textContent = s;
-  }
-});
+  await listen('asr:final', (event) => {
+    const t = event.payload?.text || '';
+    const ts = event.payload?.ts_ms || Date.now();
+    const prov = event.payload?.provider || '';
+    if (t) {
+      finals.push({ text: t, ts_ms: ts, provider: prov });
+      partialText = '';
+      capturePreviewText = t;
+      updateCapturePillText();
+      updateTranscript();
+    }
+  });
+
+  await listen('asr:status', (event) => {
+    const s = event.payload?.status || '';
+    if (s) {
+      captureRuntimeStatusText = s;
+      updateCapturePillText();
+      if (!isCapturing && captureStatus) {
+        captureStatus.textContent = s;
+      }
+    }
+  });
+
+  await listen('asr:lifecycle', (event) => {
+    const nextState = event.payload?.state || '';
+    const eventMeetingId = event.payload?.meeting_id || '';
+    const message = event.payload?.message || '';
+
+    if (eventMeetingId && meetingId && eventMeetingId !== meetingId) return;
+
+    if (nextState === 'running') {
+      captureRuntimeStatusText = 'Live';
+      updateCapturePillText();
+      return;
+    }
+
+    if (nextState === 'stopped') {
+      isCapturing = false;
+      hideCapturePill();
+      if (currentView === 'meeting') {
+        renderMeeting();
+      }
+      return;
+    }
+
+    if (nextState === 'error') {
+      isCapturing = false;
+      hideCapturePill();
+      if (message) {
+        showToast(message, 'error');
+      }
+      if (currentView === 'meeting') {
+        renderMeeting();
+      }
+    }
+  });
+}
+
+void registerTauriListeners();
 
 // ---- Search modal ----
 document.getElementById('searchTrigger').addEventListener('click', openSearch);
@@ -106,10 +169,92 @@ document.getElementById('newNoteBtn')?.addEventListener('click', async () => {
 // ---- Capture bar ----
 captureStopBtn.addEventListener('click', stopCapture);
 
+function formatCaptureDuration(msElapsed) {
+  const totalSeconds = Math.max(0, Math.floor(msElapsed / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function updateCaptureTimer() {
+  if (!captureTimer) return;
+  if (!captureStartedAt) {
+    captureTimer.textContent = '00:00';
+    return;
+  }
+  captureTimer.textContent = formatCaptureDuration(Date.now() - captureStartedAt);
+}
+
+function updateCapturePillText() {
+  if (captureRuntimeStatus) {
+    captureRuntimeStatus.textContent = captureRuntimeStatusText || 'Listening';
+  }
+  if (capturePreview) {
+    capturePreview.textContent = capturePreviewText || 'Waiting for speech...';
+  }
+}
+
+function showCapturePill(provider) {
+  captureStartedAt = Date.now();
+  captureRuntimeStatusText = 'Connecting';
+  capturePreviewText = 'Waiting for speech...';
+  captureBar.classList.remove('hidden');
+  captureStatus.textContent = `Recording ${provider}`;
+  updateCapturePillText();
+  updateCaptureTimer();
+  if (captureTimerHandle) clearInterval(captureTimerHandle);
+  captureTimerHandle = window.setInterval(updateCaptureTimer, 1000);
+}
+
+function hideCapturePill() {
+  if (captureTimerHandle) {
+    clearInterval(captureTimerHandle);
+    captureTimerHandle = null;
+  }
+  captureStartedAt = null;
+  captureRuntimeStatusText = 'Listening';
+  capturePreviewText = 'Waiting for speech...';
+  updateCaptureTimer();
+  updateCapturePillText();
+  captureBar.classList.add('hidden');
+  captureStatus.textContent = 'Idle';
+}
+
+function showToast(message, kind = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `app-toast ${kind}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  window.requestAnimationFrame(() => toast.classList.add('visible'));
+  window.setTimeout(() => {
+    toast.classList.remove('visible');
+    window.setTimeout(() => toast.remove(), 220);
+  }, 2600);
+}
+
+async function chooseDefaultProvider() {
+  const providers = ['deepgram', 'assemblyai'];
+  for (const provider of providers) {
+    try {
+      if (await invoke('has_api_key', { provider })) {
+        return provider;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return 'mock';
+}
+
 async function startCapture(provider, opts = {}) {
   if (isCapturing) return;
   finals.length = 0;
   partialText = '';
+  capturePreviewText = 'Waiting for speech...';
 
   try {
     const resp = await invoke('start_capture', {
@@ -120,12 +265,12 @@ async function startCapture(provider, opts = {}) {
     });
     meetingId = resp.meeting_id;
     isCapturing = true;
-    captureBar.classList.remove('hidden');
-    captureStatus.textContent = `Capturing (${provider})`;
+    showCapturePill(provider);
+    showToast(`Recording started with ${provider}`, 'success');
     navigate('meeting');
   } catch (e) {
     console.error(e);
-    alert(`Failed to start: ${e}`);
+    showToast(`Failed to start: ${e}`, 'error');
   }
 }
 
@@ -135,10 +280,10 @@ async function stopCapture() {
     await invoke('stop_capture', { meetingId });
   } catch (e) {
     console.error(e);
+    showToast(`Stop failed: ${e}`, 'error');
   } finally {
     isCapturing = false;
-    captureBar.classList.add('hidden');
-    captureStatus.textContent = 'Idle';
+    hideCapturePill();
   }
 }
 
@@ -174,6 +319,11 @@ async function renderHome() {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const dayName = today.toLocaleDateString('en-US', { weekday: 'short' });
+  const providerCards = [
+    { id: 'deepgram', label: 'Deepgram', desc: 'Fast live transcription' },
+    { id: 'assemblyai', label: 'AssemblyAI', desc: 'Alternative live ASR' },
+    { id: 'mock', label: 'Mock', desc: 'Offline UI testing' },
+  ];
 
   // Fetch recent meetings
   let meetings = [];
@@ -181,6 +331,26 @@ async function renderHome() {
     meetings = await invoke('list_meetings');
   } catch (e) {
     console.error('list_meetings error:', e);
+  }
+
+  if (!selectedCaptureProvider) {
+    selectedCaptureProvider = await chooseDefaultProvider();
+  }
+
+  for (const provider of providerCards) {
+    if (provider.id === 'mock') {
+      keyStatusCache.mock = true;
+      continue;
+    }
+    try {
+      keyStatusCache[provider.id] = await invoke('has_api_key', { provider: provider.id });
+    } catch {
+      keyStatusCache[provider.id] = false;
+    }
+  }
+
+  if (!keyStatusCache[selectedCaptureProvider] && selectedCaptureProvider !== 'mock') {
+    selectedCaptureProvider = await chooseDefaultProvider();
   }
 
   const recentHtml = meetings.length > 0
@@ -207,31 +377,48 @@ async function renderHome() {
   content.innerHTML = `
     <div class="view">
       <div class="capture-card">
-        <h3>Start a capture session</h3>
-        <div class="capture-row">
-          <div class="select-wrap">
-            <select id="providerSelect">
-              <option value="deepgram">Deepgram (Flux v2)</option>
-              <option value="assemblyai">AssemblyAI (U3 Pro)</option>
-              <option value="mock">Mock (offline test)</option>
-            </select>
+        <div class="capture-hero">
+          <div>
+            <h3>Start a meeting</h3>
+            <p class="capture-subtitle">Local-first capture with structured notes, live transcript, and evidence-linked memory.</p>
           </div>
-          <button class="btn btn-primary" id="startBtn" ${isCapturing ? 'disabled' : ''}>
-            ${isCapturing ? 'Capturing...' : 'Start capture'}
-          </button>
-          ${isCapturing ? `<button class="btn btn-danger" id="viewMeetingBtn">View live session</button>` : ''}
+          <div class="capture-hero-actions">
+            <button class="btn btn-primary" id="startBtn" ${isCapturing ? 'disabled' : ''}>
+              ${isCapturing ? 'Recording...' : 'Start now'}
+            </button>
+            ${isCapturing ? `<button class="btn btn-ghost" id="viewMeetingBtn">Open live view</button>` : ''}
+          </div>
         </div>
-        <div class="capture-options">
-          <label class="toggle-label">
+        <div class="capture-provider-grid">
+          ${providerCards.map(provider => `
+            <button
+              class="capture-provider-card ${provider.id === selectedCaptureProvider ? 'active' : ''} ${!keyStatusCache[provider.id] ? 'inactive' : ''}"
+              data-provider-card="${provider.id}"
+              type="button"
+            >
+              <span class="capture-provider-title">
+                ${escapeHtml(provider.label)}
+                ${keyStatusCache[provider.id] ? '<span class="capture-provider-dot ready"></span>' : '<span class="capture-provider-dot"></span>'}
+              </span>
+              <span class="capture-provider-desc">${escapeHtml(provider.desc)}</span>
+            </button>
+          `).join('')}
+        </div>
+        <div class="capture-options compact">
+          <label class="toggle-label toggle-chip">
             <input type="checkbox" id="includeMicToggle" checked />
-            <span>Include microphone</span>
+            <span>Mic on</span>
           </label>
-          <label class="toggle-label">
-            <input type="checkbox" id="systemModeToggle" checked disabled />
-            <span>System audio (loopback)</span>
-          </label>
+          <div class="capture-mode-pill">System audio loopback</div>
+          <a class="capture-inline-link" href="#settings">${selectedCaptureProvider !== 'mock' && !keyStatusCache[selectedCaptureProvider] ? 'Add API key to use this provider' : 'Manage keys'}</a>
         </div>
-        <p class="status-line mt-16">Keys: set via <a href="#settings" style="color:var(--accent)">Settings</a>, environment variables, or OS keyring</p>
+        <div class="status-line mt-16 ${selectedCaptureProvider !== 'mock' && !keyStatusCache[selectedCaptureProvider] ? 'error' : 'success'}">
+          ${selectedCaptureProvider === 'mock'
+            ? 'Mock provider selected for local UI testing.'
+            : keyStatusCache[selectedCaptureProvider]
+              ? `${providerCards.find(p => p.id === selectedCaptureProvider)?.label || 'Provider'} is configured in your OS keyring.`
+              : `${providerCards.find(p => p.id === selectedCaptureProvider)?.label || 'Provider'} has no saved key yet.`}
+        </div>
       </div>
 
       <div class="view-header">
@@ -267,11 +454,16 @@ async function renderHome() {
   `;
 
   document.getElementById('startBtn')?.addEventListener('click', () => {
-    const provider = document.getElementById('providerSelect').value;
     const includeMic = document.getElementById('includeMicToggle')?.checked ?? true;
-    startCapture(provider, { includeMic });
+    startCapture(selectedCaptureProvider, { includeMic });
   });
   document.getElementById('viewMeetingBtn')?.addEventListener('click', () => navigate('meeting'));
+  document.querySelectorAll('[data-provider-card]').forEach(el => {
+    el.addEventListener('click', () => {
+      selectedCaptureProvider = el.dataset.providerCard;
+      renderHome();
+    });
+  });
 
   // Click on recent meeting items
   document.querySelectorAll('[data-mid]').forEach(el => {
@@ -282,13 +474,69 @@ async function renderHome() {
   });
 }
 
-function renderMeeting() {
+async function renderMeeting() {
+  if (meetingTemplates.length === 0) {
+    try {
+      meetingTemplates = await invoke('list_meeting_templates');
+    } catch (e) {
+      console.error('Template load error:', e);
+    }
+  }
+  if (foldersCache.length === 0) {
+    try {
+      foldersCache = await invoke('list_folders');
+    } catch (e) {
+      console.error('Folder load error:', e);
+    }
+  }
+
+  meetingSegments = [];
+  meetingUserNotes = [];
+  currentStructuredNote = null;
+  currentMeeting = null;
+
+  if (meetingId) {
+    try {
+      const detail = await invoke('get_meeting_detail', { meetingId });
+      currentMeeting = detail.meeting;
+      meetingSegments = detail.segments || [];
+      meetingUserNotes = detail.user_notes || [];
+      currentStructuredNote = detail.structured_note || null;
+    } catch (e) {
+      console.error('Meeting detail load error:', e);
+    }
+  }
+
+  const templateKind = currentMeeting?.template_kind || 'generic';
+  const title = currentMeeting?.title || (meetingId ? 'Meeting Notes' : 'Live Session');
+  const folderOptions = ['<option value="">No folder</option>'].concat(
+    foldersCache.map(folder => `
+      <option value="${folder.id}" ${currentMeeting?.folder_id === folder.id ? 'selected' : ''}>
+        ${escapeHtml(folder.name)}
+      </option>
+    `),
+  ).join('');
+  const templateOptions = meetingTemplates.map(t => `
+    <option value="${escapeHtml(t.kind)}" ${t.kind === templateKind ? 'selected' : ''}>
+      ${escapeHtml(t.label)}
+    </option>
+  `).join('');
+
+  const userNotesHtml = meetingUserNotes.length > 0
+    ? meetingUserNotes.map(n => `
+      <div class="user-note-row">
+        <div class="user-note-meta">${formatDateTime(n.ts_ms)}</div>
+        <div class="user-note-text">${escapeHtml(n.text)}</div>
+      </div>
+    `).join('')
+    : '<p class="text-muted">No saved human notes yet.</p>';
+
   content.innerHTML = `
     <div class="meeting-detail" style="padding-bottom: 320px;">
       <div class="meeting-detail-header">
-        <h1>${meetingId ? 'Live Session' : 'Meeting Notes'}</h1>
+        <h1>${escapeHtml(title)}</h1>
         <div class="meeting-badges">
-          <span class="badge">Today</span>
+          <span class="badge">${escapeHtml((templateKind || 'generic').replaceAll('_', ' '))}</span>
           ${isCapturing ? '<span class="badge recording-badge">Recording</span>' : ''}
         </div>
         <div class="meeting-actions">
@@ -296,7 +544,45 @@ function renderMeeting() {
         </div>
       </div>
 
-      <div class="notes-editor" contenteditable="true" id="notesEditor"></div>
+      <div class="settings-section meeting-template-bar">
+        <div>
+          <h2>Meeting template</h2>
+          <p class="text-muted" style="font-size:13px;">Templates steer the structure and retrieval emphasis.</p>
+        </div>
+        <div class="meeting-template-actions">
+          <div class="select-wrap">
+            <select id="meetingFolderSelect">${folderOptions}</select>
+          </div>
+          <div class="select-wrap">
+            <select id="meetingTemplateSelect">${templateOptions}</select>
+          </div>
+          <button class="btn-primary-sm" id="generateStructuredBtn">Generate structured notes</button>
+        </div>
+      </div>
+
+      <div class="meeting-grid">
+        <div class="settings-section">
+          <h2>Human notes</h2>
+          <textarea class="chat-textarea" id="meetingNoteInput" placeholder="Capture your own outline, decisions, actions, risks, or questions..." rows="4"></textarea>
+          <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+            <button class="btn-primary-sm" id="saveMeetingNoteBtn">Save note</button>
+          </div>
+          <div class="user-notes-list mt-16">${userNotesHtml}</div>
+        </div>
+
+        <div class="settings-section">
+          <div class="structured-notes-header">
+            <div>
+              <h2>Structured notes</h2>
+              <p class="text-muted" style="font-size:13px;">Editable notes grounded in transcript evidence.</p>
+            </div>
+            ${currentStructuredNote ? `<span class="key-status configured">Ready</span>` : `<span class="key-status missing">Not generated</span>`}
+          </div>
+          <div id="structuredNotesRoot">
+            ${renderStructuredNotes(currentStructuredNote)}
+          </div>
+        </div>
+      </div>
 
       ${isCapturing ? `
       <div class="transcript-panel" id="transcriptPanel">
@@ -311,7 +597,7 @@ function renderMeeting() {
       ` : `
       <div class="transcript-panel" id="transcriptPanel">
         <div class="transcript-header">
-          <h3>Transcript (${finals.length} segments)</h3>
+          <h3>Transcript (${meetingSegments.length} segments)</h3>
         </div>
         <div class="transcript-body" id="transcriptBody">
           <div id="transcriptContent"></div>
@@ -323,7 +609,7 @@ function renderMeeting() {
         <input type="text" placeholder="Ask anything" id="askInput" />
         <button class="recipe-chip" id="runSummaryBtn">
           <span class="chip-icon">/</span>
-          Summary
+          Refresh notes
         </button>
         <button class="recipe-chip" onclick="window.location.hash='recipes'">
           <span class="chip-icon">/</span>
@@ -333,43 +619,152 @@ function renderMeeting() {
     </div>
   `;
 
-  // Transcript toggle
   document.getElementById('transcriptToggle')?.addEventListener('click', () => {
     document.getElementById('transcriptPanel')?.classList.toggle('collapsed');
   });
 
-  // Export button
   document.getElementById('exportBtn')?.addEventListener('click', exportMeeting);
 
-  // Save notes on blur
-  const editor = document.getElementById('notesEditor');
-  if (editor) {
-    editor.addEventListener('blur', async () => {
-      const text = editor.innerText.trim();
-      if (text && meetingId) {
-        try {
-          await invoke('append_note', { meetingId, text });
-        } catch (e) { console.error('Note save error:', e); }
-      }
-    });
-  }
-
-  // Summary recipe
-  document.getElementById('runSummaryBtn')?.addEventListener('click', async () => {
+  document.getElementById('meetingTemplateSelect')?.addEventListener('change', async (e) => {
     if (!meetingId) return;
+    const nextTemplate = e.target.value;
     try {
-      const out = await invoke('run_recipe', { meetingId, recipeId: 'summary' });
-      const editor = document.getElementById('notesEditor');
-      if (editor) editor.innerHTML = `<pre style="white-space: pre-wrap;">${escapeHtml(out.text)}</pre>`;
-    } catch (e) {
-      console.error('Recipe error:', e);
+      await invoke('set_meeting_template', { meetingId, templateKind: nextTemplate });
+      if (currentMeeting) currentMeeting.template_kind = nextTemplate;
+    } catch (err) {
+      console.error('Template update error:', err);
     }
   });
 
+  document.getElementById('meetingFolderSelect')?.addEventListener('change', async (e) => {
+    if (!meetingId) return;
+    const nextFolderId = e.target.value ? parseInt(e.target.value) : null;
+    try {
+      await invoke('assign_meeting_folder', { meetingId, folderId: nextFolderId });
+      if (currentMeeting) currentMeeting.folder_id = nextFolderId;
+    } catch (err) {
+      console.error('Meeting folder update error:', err);
+    }
+  });
+
+  document.getElementById('saveMeetingNoteBtn')?.addEventListener('click', async () => {
+    if (!meetingId) return;
+    const input = document.getElementById('meetingNoteInput');
+    const text = input?.value.trim();
+    if (!text) return;
+    try {
+      await invoke('append_note', { meetingId, text });
+      input.value = '';
+      renderMeeting();
+    } catch (e) {
+      console.error('Note save error:', e);
+    }
+  });
+
+  document.getElementById('generateStructuredBtn')?.addEventListener('click', async () => {
+    if (!meetingId) return;
+    try {
+      currentStructuredNote = await invoke('generate_structured_meeting_notes', {
+        meetingId,
+        templateKind: document.getElementById('meetingTemplateSelect')?.value || templateKind,
+      });
+      renderMeeting();
+    } catch (e) {
+      console.error('Structured note generation error:', e);
+    }
+  });
+
+  document.getElementById('runSummaryBtn')?.addEventListener('click', async () => {
+    document.getElementById('generateStructuredBtn')?.click();
+  });
+
+  bindStructuredNoteEditors();
   updateTranscript();
 }
 
-function renderChat() {
+function renderStructuredNotes(note) {
+  if (!note) {
+    return `
+      <div class="empty-state" style="padding: 24px 12px;">
+        <h3>Structured notes are empty</h3>
+        <p>Generate notes to capture summary, decisions, actions, questions, risks, and evidence-linked highlights.</p>
+      </div>
+    `;
+  }
+
+  const sectionsHtml = note.sections.map(section => `
+    <div class="structured-section">
+      <h3>${escapeHtml(section.label)}</h3>
+      ${section.items.length > 0 ? section.items.map(item => `
+        <div class="structured-item">
+          <textarea class="structured-item-input" data-structured-item-id="${item.id}" rows="2">${escapeHtml(item.text)}</textarea>
+          <div class="structured-item-meta">
+            <span class="badge subtle">${escapeHtml(item.author_kind)}</span>
+            <span class="text-muted">${item.evidence_count} evidence source${item.evidence_count === 1 ? '' : 's'}</span>
+            ${item.retrieval_confidence ? `<span class="text-muted">confidence ${(item.retrieval_confidence * 100).toFixed(0)}%</span>` : ''}
+          </div>
+          <div class="citation-row">
+            ${item.citations.map(citation => `
+              <button class="citation-chip" data-segment-jump="${citation.segment_id}">
+                ${escapeHtml(formatShortTime(citation.ts_ms))} · ${escapeHtml(citation.excerpt)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `).join('') : '<p class="text-muted">No items yet.</p>'}
+    </div>
+  `).join('');
+
+  return `
+    <div class="structured-summary-card">
+      <label class="text-muted" style="font-size:12px;">Summary</label>
+      <textarea id="structuredSummaryInput" class="chat-textarea" rows="4">${escapeHtml(note.summary || '')}</textarea>
+    </div>
+    <div class="structured-sections">${sectionsHtml}</div>
+  `;
+}
+
+function bindStructuredNoteEditors() {
+  document.getElementById('structuredSummaryInput')?.addEventListener('blur', async (e) => {
+    if (!meetingId || !currentStructuredNote) return;
+    const summary = e.target.value.trim();
+    try {
+      await invoke('update_structured_note_summary', { meetingId, summary });
+      currentStructuredNote.summary = summary;
+    } catch (err) {
+      console.error('Structured summary update error:', err);
+    }
+  });
+
+  document.querySelectorAll('[data-structured-item-id]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const itemId = parseInt(el.dataset.structuredItemId);
+      const text = el.value.trim();
+      if (!text) return;
+      try {
+        await invoke('update_structured_note_item', { itemId, text });
+      } catch (err) {
+        console.error('Structured item update error:', err);
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-segment-jump]').forEach(el => {
+    el.addEventListener('click', () => {
+      jumpToTranscriptSegment(parseInt(el.dataset.segmentJump));
+    });
+  });
+}
+
+async function renderChat() {
+  if (foldersCache.length === 0) {
+    try {
+      foldersCache = await invoke('list_folders');
+    } catch (e) {
+      console.error('Folder load error:', e);
+    }
+  }
+
   content.innerHTML = `
     <div class="view">
       <div class="view-header">
@@ -378,14 +773,21 @@ function renderChat() {
 
       <div class="chat-input-area">
         <div class="chat-input-header">
-          <span class="scope-tag active" data-scope="notes">My notes</span>
-          <span class="scope-tag" data-scope="meetings">All meetings</span>
+          <span class="scope-tag active" data-scope="meeting">This meeting</span>
+          <span class="scope-tag" data-scope="folder">Folder</span>
+          <span class="scope-tag" data-scope="all">All meetings</span>
+        </div>
+        <div class="inline-form" style="margin-top:0; padding-top:0;">
+          <select id="askFolderSelect" style="min-width:200px;">
+            <option value="">All folders</option>
+            ${foldersCache.map(folder => `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`).join('')}
+          </select>
         </div>
         <textarea class="chat-textarea" id="chatTextarea" placeholder="What decisions were made?" rows="2"></textarea>
         <div class="chat-input-footer">
           <div class="model-selector">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
-            LLM (requires feature flag)
+            Grounded local retrieval
           </div>
           <button class="btn-primary-sm" id="chatSendBtn">Send</button>
         </div>
@@ -416,17 +818,36 @@ function renderChat() {
   const textarea = document.getElementById('chatTextarea');
 
   async function sendChat() {
-    if (!meetingId) {
-      document.getElementById('chatResponse').innerHTML =
-        '<p class="text-muted" style="padding:12px;">Start a capture session first to use chat.</p>';
-      return;
-    }
     const text = textarea.value.trim();
     if (!text) return;
+    const scope = document.querySelector('.scope-tag.active')?.dataset.scope || 'all';
+    const folderId = document.getElementById('askFolderSelect')?.value
+      ? parseInt(document.getElementById('askFolderSelect').value)
+      : null;
     try {
-      const out = await invoke('run_recipe', { meetingId, recipeId: 'summary' });
+      const out = await invoke('ask_audire', { query: text, scope, meetingId, folderId });
       document.getElementById('chatResponse').innerHTML =
-        `<div class="settings-section"><pre style="white-space:pre-wrap;font-size:13px;color:var(--text-primary);">${escapeHtml(out.text)}</pre></div>`;
+        `<div class="settings-section">
+          <pre style="white-space:pre-wrap;font-size:13px;color:var(--text-primary);">${escapeHtml(out.answer)}</pre>
+          <div class="citation-row" style="margin-top:14px;">
+            ${out.citations.map(citation => `
+              <button class="citation-chip" data-chat-segment-id="${citation.segment_id || ''}" data-chat-meeting-id="${citation.meeting_id || ''}">
+                ${escapeHtml(citation.title)}${citation.ts_ms ? ` · ${escapeHtml(formatShortTime(citation.ts_ms))}` : ''} · ${escapeHtml(citation.excerpt.slice(0, 90))}
+              </button>
+            `).join('')}
+          </div>
+        </div>`;
+      document.querySelectorAll('[data-chat-segment-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const segmentId = parseInt(el.dataset.chatSegmentId);
+          const nextMeetingId = el.dataset.chatMeetingId || null;
+          if (!Number.isNaN(segmentId)) {
+            if (nextMeetingId) meetingId = nextMeetingId;
+            navigate('meeting');
+            window.setTimeout(() => jumpToTranscriptSegment(segmentId), 120);
+          }
+        });
+      });
     } catch (e) {
       document.getElementById('chatResponse').innerHTML =
         `<p class="status-line error">Error: ${escapeHtml(String(e))}</p>`;
@@ -472,16 +893,77 @@ async function renderNotes() {
 
   let meetings = [];
   let standaloneNotes = [];
+  let folders = [];
+  let selectedFolder = null;
   try {
-    [meetings, standaloneNotes] = await Promise.all([
+    [meetings, standaloneNotes, folders] = await Promise.all([
       invoke('list_meetings'),
       invoke('list_standalone_notes'),
+      invoke('list_folders'),
     ]);
+    foldersCache = folders;
+    if (currentFolderId) {
+      selectedFolder = await invoke('get_folder_detail', { folderId: currentFolderId });
+    }
   } catch (e) {
     console.error('Notes load error:', e);
   }
 
   let html = '<div class="view"><div class="view-header"><h1>My notes</h1></div>';
+
+  if (folders.length > 0) {
+    html += '<div class="notes-sub-header"><h2>Folders</h2></div><div class="notes-list">';
+    for (const folder of folders) {
+      html += `
+        <div class="note-card" data-folder-id="${folder.id}">
+          <div class="note-card-title">${escapeHtml(folder.name)}</div>
+          <div class="note-card-meta">${escapeHtml(folder.kind)} &middot; ${folder.meeting_count} meeting${folder.meeting_count !== 1 ? 's' : ''}</div>
+          <div class="note-card-preview">${folder.note_count} standalone note${folder.note_count !== 1 ? 's' : ''}</div>
+        </div>`;
+    }
+    html += '</div>';
+  }
+
+  html += `
+    <div class="inline-form" id="addFolderForm">
+      <input type="text" id="folderName" placeholder="Folder name" style="flex:1;" />
+      <select id="folderKind">
+        <option value="project">Project</option>
+        <option value="client">Client</option>
+        <option value="team">Team</option>
+        <option value="topic">Topic</option>
+      </select>
+      <button class="btn-primary-sm" id="addFolderBtn">Create folder</button>
+    </div>
+  `;
+
+  if (selectedFolder) {
+    html += `
+      <div class="settings-section">
+        <h2>${escapeHtml(selectedFolder.folder.name)}</h2>
+        <p class="text-muted" style="font-size:13px;">${escapeHtml(selectedFolder.folder.kind)} folder</p>
+        <div class="notes-sub-header" style="margin-top:16px;"><h2>Meetings</h2></div>
+        <div class="notes-list">
+          ${selectedFolder.meetings.length > 0 ? selectedFolder.meetings.map(m => `
+            <div class="note-card" data-meeting-note-id="${escapeHtml(m.id)}">
+              <div class="note-card-title">${escapeHtml(m.title || `${m.provider} session`)}</div>
+              <div class="note-card-meta">${m.note_count} note${m.note_count !== 1 ? 's' : ''}</div>
+              <div class="note-card-preview">${escapeHtml((m.note_preview || '').slice(0, 100))}</div>
+            </div>
+          `).join('') : '<p class="text-muted">No meetings in this folder yet.</p>'}
+        </div>
+        <div class="notes-sub-header" style="margin-top:20px;"><h2>Standalone Notes</h2></div>
+        <div class="notes-list">
+          ${selectedFolder.standalone_notes.length > 0 ? selectedFolder.standalone_notes.map(n => `
+            <div class="note-card" data-standalone-id="${n.id}">
+              <div class="note-card-title">${escapeHtml(n.title)}</div>
+              <div class="note-card-preview">${escapeHtml(n.text.slice(0, 100))}</div>
+            </div>
+          `).join('') : '<p class="text-muted">No standalone notes in this folder yet.</p>'}
+        </div>
+      </div>
+    `;
+  }
 
   // Standalone notes section
   if (standaloneNotes.length > 0) {
@@ -493,7 +975,7 @@ async function renderNotes() {
       html += `
         <div class="note-card" data-standalone-id="${n.id}">
           <div class="note-card-title">${escapeHtml(n.title)}</div>
-          <div class="note-card-meta">${dateStr}</div>
+          <div class="note-card-meta">${dateStr}${n.folder_name ? ` &middot; ${escapeHtml(n.folder_name)}` : ''}</div>
           <div class="note-card-preview">${escapeHtml(n.text.slice(0, 120))}</div>
         </div>`;
     }
@@ -501,7 +983,7 @@ async function renderNotes() {
   }
 
   // Meeting notes section
-  const meetingsWithNotes = meetings.filter(m => m.note_count > 0);
+  const meetingsWithNotes = meetings.filter(m => m.note_count > 0 || m.has_structured_notes);
   if (meetingsWithNotes.length > 0) {
     html += '<div class="notes-sub-header" style="margin-top:24px;"><h2>Meeting Notes</h2></div>';
     html += '<div class="notes-list">';
@@ -512,7 +994,7 @@ async function renderNotes() {
       html += `
         <div class="note-card" data-meeting-note-id="${escapeHtml(m.id)}">
           <div class="note-card-title">${escapeHtml(title)}</div>
-          <div class="note-card-meta">${dateStr} &middot; ${m.note_count} note${m.note_count !== 1 ? 's' : ''}</div>
+          <div class="note-card-meta">${dateStr} &middot; ${m.note_count} note${m.note_count !== 1 ? 's' : ''}${m.folder_name ? ` &middot; ${escapeHtml(m.folder_name)}` : ''}</div>
           <div class="note-card-preview">${escapeHtml((m.note_preview || '').slice(0, 120))}</div>
         </div>`;
     }
@@ -547,6 +1029,25 @@ async function renderNotes() {
       meetingId = el.dataset.meetingNoteId;
       navigate('meeting');
     });
+  });
+
+  document.querySelectorAll('[data-folder-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      currentFolderId = parseInt(el.dataset.folderId);
+      renderNotes();
+    });
+  });
+
+  document.getElementById('addFolderBtn')?.addEventListener('click', async () => {
+    const name = document.getElementById('folderName')?.value.trim();
+    const kind = document.getElementById('folderKind')?.value || 'project';
+    if (!name) return;
+    try {
+      await invoke('create_folder', { name, kind, color: null });
+      renderNotes();
+    } catch (e) {
+      console.error('Create folder error:', e);
+    }
   });
 }
 
@@ -646,8 +1147,18 @@ async function renderCompanies() {
   `;
 
   let orgs = [];
+  let orgKeyCounts = {};
   try {
     orgs = await invoke('list_organizations');
+    const statusLists = await Promise.all(orgs.map(async org => {
+      try {
+        const statuses = await invoke('list_org_shared_key_statuses', { orgId: org.id });
+        return [org.id, statuses.length];
+      } catch {
+        return [org.id, 0];
+      }
+    }));
+    orgKeyCounts = Object.fromEntries(statusLists);
   } catch (e) {
     console.error('list_organizations error:', e);
   }
@@ -665,6 +1176,7 @@ async function renderCompanies() {
             <div>
               <div class="person-name">${escapeHtml(o.name)}</div>
               <div class="person-email">${escapeHtml(o.domain || '')}</div>
+              <div class="person-email">Shared keys: ${orgKeyCounts[o.id] || 0}</div>
             </div>
           </div>
         </td>
@@ -735,11 +1247,19 @@ async function renderSettings() {
   let keyRows = '';
   for (const p of providers) {
     const has = keyStatusCache[p.id];
+    let source = 'Unavailable';
+    try {
+      const resolution = await invoke('resolve_provider_key_source', { provider: p.id, orgId: null });
+      source = resolution?.source ? resolution.source.replaceAll('_', ' ') : source;
+    } catch {
+      source = has ? 'Available' : 'Unavailable';
+    }
     keyRows += `
       <div class="key-row">
         <span class="provider-label">${p.label}</span>
         <span class="key-status ${has ? 'configured' : 'missing'}">${has ? 'Configured' : 'Not set'}</span>
         <input type="password" class="key-input" id="key-${p.id}" placeholder="${p.desc}" />
+        <span class="text-muted" style="font-size:12px; min-width:100px;">${escapeHtml(source)}</span>
         <button class="btn-primary-sm" data-save-key="${p.id}">Save</button>
         ${has ? `<button class="btn-danger-sm" data-delete-key="${p.id}">Delete</button>` : ''}
       </div>`;
@@ -781,9 +1301,19 @@ async function renderSettings() {
       try {
         await invoke('save_api_key', { provider, key });
         input.value = '';
+        showToast(`${provider} key saved`, 'success');
         renderSettings(); // re-render to update status
       } catch (e) {
-        alert(`Failed to save key: ${e}`);
+        showToast(`Failed to save key: ${e}`, 'error');
+      }
+    });
+  });
+
+  document.querySelectorAll('.key-input').forEach(input => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        input.closest('.key-row')?.querySelector('[data-save-key]')?.click();
       }
     });
   });
@@ -794,9 +1324,10 @@ async function renderSettings() {
       const provider = btn.dataset.deleteKey;
       try {
         await invoke('delete_api_key', { provider });
+        showToast(`${provider} key deleted`, 'success');
         renderSettings();
       } catch (e) {
-        alert(`Failed to delete key: ${e}`);
+        showToast(`Failed to delete key: ${e}`, 'error');
       }
     });
   });
@@ -806,6 +1337,14 @@ async function renderNoteEditor() {
   if (!currentStandaloneNoteId) {
     navigate('notes');
     return;
+  }
+
+  if (foldersCache.length === 0) {
+    try {
+      foldersCache = await invoke('list_folders');
+    } catch (e) {
+      console.error('Folder load error:', e);
+    }
   }
 
   let note;
@@ -822,6 +1361,16 @@ async function renderNoteEditor() {
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
         <button class="btn btn-ghost" id="noteBackBtn">Back</button>
         <button class="btn-danger-sm" id="noteDeleteBtn">Delete</button>
+      </div>
+      <div class="inline-form" style="margin-top:0; margin-bottom:12px;">
+        <select id="noteFolderSelect" style="min-width:180px;">
+          <option value="">No folder</option>
+          ${foldersCache.map(folder => `
+            <option value="${folder.id}" ${note.folder_id === folder.id ? 'selected' : ''}>
+              ${escapeHtml(folder.name)}
+            </option>
+          `).join('')}
+        </select>
       </div>
       <input class="note-title-input" id="noteTitleInput" value="${escapeHtml(note.title)}" placeholder="Note title..." />
       <div class="notes-editor" contenteditable="true" id="noteBodyEditor">${escapeHtml(note.text)}</div>
@@ -847,6 +1396,16 @@ async function renderNoteEditor() {
 
   titleInput?.addEventListener('blur', saveNote);
   bodyEditor?.addEventListener('blur', saveNote);
+  document.getElementById('noteFolderSelect')?.addEventListener('change', async (e) => {
+    try {
+      await invoke('assign_standalone_note_folder', {
+        noteId: currentStandaloneNoteId,
+        folderId: e.target.value ? parseInt(e.target.value) : null,
+      });
+    } catch (err) {
+      console.error('Assign note folder error:', err);
+    }
+  });
 
   document.getElementById('noteBackBtn')?.addEventListener('click', () => {
     saveNote();
@@ -918,9 +1477,8 @@ function renderRecipes() {
     }
     navigate('meeting');
     try {
-      const out = await invoke('run_recipe', { meetingId, recipeId: 'summary' });
-      const editor = document.getElementById('notesEditor');
-      if (editor) editor.innerHTML = `<pre style="white-space: pre-wrap;">${escapeHtml(out.text)}</pre>`;
+      await invoke('generate_structured_meeting_notes', { meetingId, templateKind: currentMeeting?.template_kind || 'generic' });
+      renderMeeting();
     } catch (e) { console.error(e); }
   });
 }
@@ -931,10 +1489,26 @@ function updateTranscript() {
   if (!el) return;
 
   let html = '';
-  for (const f of finals) {
-    const ts = new Date(f.ts_ms);
-    const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    html += `<div class="transcript-line final"><span class="ts">${timeStr}</span> ${escapeHtml(f.text)}</div>`;
+  const transcriptRows = meetingSegments.length > 0 && !isCapturing
+    ? meetingSegments.map(seg => ({
+        id: seg.id,
+        ts_ms: seg.ts_ms,
+        text: seg.text,
+        kind: 'final',
+      }))
+    : finals.map(f => ({
+        id: null,
+        ts_ms: f.ts_ms,
+        text: f.text,
+        kind: 'final',
+      }));
+
+  for (const row of transcriptRows) {
+    html += `
+      <div class="transcript-line ${row.kind}" ${row.id ? `data-transcript-segment="${row.id}"` : ''}>
+        <span class="ts">${escapeHtml(formatDateTime(row.ts_ms))}</span>
+        ${escapeHtml(row.text)}
+      </div>`;
   }
   if (partialText) {
     html += `<div class="transcript-line partial">${escapeHtml(partialText)}</div>`;
@@ -946,9 +1520,32 @@ function updateTranscript() {
   if (body) body.scrollTop = body.scrollHeight;
 }
 
+function jumpToTranscriptSegment(segmentId) {
+  const line = document.querySelector(`[data-transcript-segment="${segmentId}"]`);
+  if (!line) return;
+  line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  line.classList.add('flash-segment');
+  window.setTimeout(() => line.classList.remove('flash-segment'), 1400);
+}
+
+function formatDateTime(tsMs) {
+  return new Date(tsMs).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function formatShortTime(tsMs) {
+  const totalSeconds = Math.floor(tsMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
-  d.textContent = str;
+  d.textContent = str ?? '';
   return d.innerHTML;
 }
 
