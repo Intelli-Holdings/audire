@@ -5,10 +5,12 @@ pub mod mock;
 
 use crate::audio;
 use crate::error::{ParaError, Result};
+use crate::services::meeting_notes;
+use crate::state::AppState;
 use crate::store::db::LocalStore;
 
 use ringbuf::traits::Consumer;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -83,12 +85,25 @@ pub async fn run_pipeline(
         "deepgram" => deepgram::connect(&api_key).await?,
         "assemblyai" => assemblyai::connect(&api_key).await?,
         "mock" => mock::start_mock().await,
-        _ => return Err(ParaError::Asr(format!("unknown provider: {}", config.provider))),
+        _ => {
+            return Err(ParaError::Asr(format!(
+                "unknown provider: {}",
+                config.provider
+            )))
+        }
     };
 
     let _ = app.emit(
         "asr:status",
         serde_json::json!({ "status": format!("streaming to {}", config.provider) }),
+    );
+    let _ = app.emit(
+        "asr:lifecycle",
+        serde_json::json!({
+            "state": "running",
+            "meeting_id": meeting_id.clone(),
+            "provider": config.provider.clone(),
+        }),
     );
 
     let ws_tx_send = ws_tx.clone();
@@ -160,25 +175,54 @@ pub async fn run_pipeline(
 
             send_handle.abort();
 
-            let _ = store.generate_meeting_notes(&meeting_id);
+            let _ = meeting_notes::generate_and_store(&store, &meeting_id, None);
 
             let _ = app.emit(
                 "asr:status",
                 serde_json::json!({ "status": "stopped" }),
             );
+            let _ = app.emit(
+                "asr:lifecycle",
+                serde_json::json!({
+                    "state": "stopped",
+                    "meeting_id": meeting_id.clone(),
+                }),
+            );
         }
         _ = &mut recv_handle => {
             send_handle.abort();
+            clear_capture_if_active(&app, &meeting_id);
+            return Err(ParaError::Asr(
+                "transcription stream ended before capture was stopped".into(),
+            ));
         }
-        _ = &mut send_handle => {}
+        _ = &mut send_handle => {
+            recv_handle.abort();
+            clear_capture_if_active(&app, &meeting_id);
+            return Err(ParaError::Audio(
+                "audio capture stream stopped unexpectedly".into(),
+            ));
+        }
     }
 
     Ok(())
 }
 
+fn clear_capture_if_active(app: &tauri::AppHandle, meeting_id: &str) {
+    let state = app.state::<AppState>();
+    let mut capture = state.capture.lock().unwrap();
+    if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(meeting_id) {
+        capture.take();
+    }
+}
+
 /// Start system audio capture based on platform and config.
 fn start_system_audio(config: &CaptureConfig) -> Result<audio::system_capture::SystemCapture> {
-    audio::system_capture::start_system_audio_capture(5, config.mode.as_str(), config.target_process)
+    audio::system_capture::start_system_audio_capture(
+        5,
+        config.mode.as_str(),
+        config.target_process,
+    )
 }
 
 /// Spawn a task that drains audio ring buffers, resamples, and sends to WSS.

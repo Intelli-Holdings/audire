@@ -63,4 +63,33 @@ impl KeyVault {
         entry.delete_credential()?;
         Ok(())
     }
+
+    pub fn get_org_provider_key(&self, org_key_ref: &str, provider: &str) -> Option<String> {
+        let name = format!("org:{}:provider:{}", org_key_ref, provider);
+        let entry = Entry::new(&self.service, &name).ok()?;
+        entry.get_password().ok()
+    }
+
+    pub fn set_org_provider_key(
+        &self,
+        org_key_ref: &str,
+        provider: &str,
+        key: &str,
+    ) -> anyhow::Result<()> {
+        let name = format!("org:{}:provider:{}", org_key_ref, provider);
+        let entry = Entry::new(&self.service, &name)?;
+        entry.set_password(key)?;
+        Ok(())
+    }
+
+    pub fn has_org_provider_key(&self, org_key_ref: &str, provider: &str) -> bool {
+        self.get_org_provider_key(org_key_ref, provider).is_some()
+    }
+
+    pub fn delete_org_provider_key(&self, org_key_ref: &str, provider: &str) -> anyhow::Result<()> {
+        let name = format!("org:{}:provider:{}", org_key_ref, provider);
+        let entry = Entry::new(&self.service, &name)?;
+        entry.delete_credential()?;
+        Ok(())
+    }
 }

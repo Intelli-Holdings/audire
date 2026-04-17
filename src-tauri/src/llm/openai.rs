@@ -10,5 +10,7 @@ pub async fn call_chat_completion(_api_key: &str, _prompt: &str) -> anyhow::Resu
     // - Authorization: Bearer {api_key}
     // - Model: gpt-4o (or user-configurable)
     // - Stream response for better UX
-    anyhow::bail!("OpenAI gateway not implemented in MVP scaffold. Enable llm_openai feature and implement.")
+    anyhow::bail!(
+        "OpenAI gateway not implemented in MVP scaffold. Enable llm_openai feature and implement."
+    )
 }

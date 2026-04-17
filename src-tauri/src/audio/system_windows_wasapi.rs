@@ -14,8 +14,8 @@ use crate::audio::types::PcmFormat;
 use crate::error::{ParaError, Result};
 
 use ringbuf::traits::Producer;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Start WASAPI loopback capture.
 ///
@@ -54,10 +54,16 @@ pub fn start_capture(
                     // Per-process loopback (Windows 10 20348+ / Windows 11)
                     // Reference: https://docs.rs/wasapi/latest/wasapi/struct.AudioClient.html
                     let pid = target_pid.unwrap();
-                    eprintln!("[audire] WASAPI: attempting per-process loopback for PID {}", pid);
+                    eprintln!(
+                        "[audire] WASAPI: attempting per-process loopback for PID {}",
+                        pid
+                    );
                     // Note: new_application_loopback_client may not be available on older wasapi crate versions.
                     // If unavailable, falls through to the error below.
-                    Err(format!("per-process loopback not yet supported in wasapi 0.16; PID={}", pid))
+                    Err(format!(
+                        "per-process loopback not yet supported in wasapi 0.16; PID={}",
+                        pid
+                    ))
                 } else {
                     // Default: system-wide loopback from the default render device
                     init_system_loopback()
@@ -101,8 +107,8 @@ pub fn start_capture(
                         let b2 = buf.pop_front().unwrap();
                         let b3 = buf.pop_front().unwrap();
                         let f = f32::from_le_bytes([b0, b1, b2, b3]);
-                        let s = (f * i16::MAX as f32)
-                            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                        let s =
+                            (f * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                         // Backpressure: if ring is full, oldest samples are dropped (try_push).
                         // This is intentional — prefer continuity over RAM growth.
                         let _ = prod.try_push(s);
@@ -140,7 +146,11 @@ pub fn start_capture(
 /// Returns (AudioClient, Handle, AudioCaptureClient) on success.
 #[cfg(all(windows, feature = "sys_audio_windows"))]
 fn init_system_loopback() -> std::result::Result<
-    (wasapi::AudioClient, wasapi::Handle, wasapi::AudioCaptureClient),
+    (
+        wasapi::AudioClient,
+        wasapi::Handle,
+        wasapi::AudioCaptureClient,
+    ),
     String,
 > {
     use wasapi::*;
@@ -157,9 +167,7 @@ fn init_system_loopback() -> std::result::Result<
         .get_mixformat()
         .map_err(|e| format!("get_mixformat: {}", e))?;
 
-    let (_def_period, min_period) = audio_client
-        .get_periods()
-        .unwrap_or((0, 100_000));
+    let (_def_period, min_period) = audio_client.get_periods().unwrap_or((0, 100_000));
 
     audio_client
         .initialize_client(

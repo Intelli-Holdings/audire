@@ -25,9 +25,9 @@ use crate::audio::types::PcmFormat;
 #[cfg(target_os = "macos")]
 use ringbuf::traits::Producer;
 #[cfg(target_os = "macos")]
-use std::sync::Arc;
-#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 
 /// Start macOS system audio capture via ScreenCaptureKit helper.
 pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {

@@ -1,5 +1,5 @@
+use ringbuf::traits::Split;
 use ringbuf::{HeapCons, HeapProd, HeapRb};
-use ringbuf::traits::Split; 
 /// Create a bounded ring buffer for audio samples.
 /// Returns (producer, consumer) — ownership is split.
 ///

@@ -11,8 +11,8 @@ use crate::audio::types::PcmFormat;
 #[allow(unused_imports)]
 use crate::error::{ParaError, Result};
 use ringbuf::HeapCons;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Active system audio capture handle.
 /// Dropping this struct stops the capture.

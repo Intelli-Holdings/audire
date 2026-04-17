@@ -25,9 +25,9 @@ use crate::audio::types::PcmFormat;
 #[cfg(target_os = "linux")]
 use ringbuf::traits::Producer;
 #[cfg(target_os = "linux")]
-use std::sync::Arc;
-#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
 
 /// Start Linux system audio capture by finding a monitor source.
 pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
@@ -117,7 +117,8 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                             }
                             for &s in data {
                                 let v = (s * i16::MAX as f32)
-                                    .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                                    .clamp(i16::MIN as f32, i16::MAX as f32)
+                                    as i16;
                                 let _ = prod2.try_push(v);
                             }
                         },

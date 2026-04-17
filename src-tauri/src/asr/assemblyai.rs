@@ -29,9 +29,7 @@ const AAI_URL: &str = "wss://streaming.assemblyai.com/v3/ws\
 /// Returns (sender_channel, receiver_channel) for the ASR pipeline.
 ///
 /// SECURITY: api_key is used only in the auth header; never logged or returned to UI.
-pub async fn connect(
-    api_key: &str,
-) -> Result<(mpsc::Sender<Message>, mpsc::Receiver<Message>)> {
+pub async fn connect(api_key: &str) -> Result<(mpsc::Sender<Message>, mpsc::Receiver<Message>)> {
     let request = http::Request::builder()
         .uri(AAI_URL)
         .header("Authorization", api_key)

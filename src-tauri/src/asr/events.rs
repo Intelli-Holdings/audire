@@ -70,10 +70,7 @@ impl AsrEvent {
                 }
             }
             AsrEvent::Mock(v) => {
-                let is_final = v
-                    .get("is_final")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false);
+                let is_final = v.get("is_final").and_then(|x| x.as_bool()).unwrap_or(false);
                 if is_final {
                     return None;
                 }
@@ -123,10 +120,7 @@ impl AsrEvent {
                 }
             }
             AsrEvent::Mock(v) => {
-                let is_final = v
-                    .get("is_final")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false);
+                let is_final = v.get("is_final").and_then(|x| x.as_bool()).unwrap_or(false);
                 if !is_final {
                     return None;
                 }
@@ -145,27 +139,22 @@ impl AsrEvent {
                     .map(|t| t == "Error")
                     .unwrap_or(false)
             }
-            AsrEvent::AssemblyAi(v) => {
-                v.get("type")
-                    .and_then(|t| t.as_str())
-                    .map(|t| t == "Termination")
-                    .unwrap_or(false)
-            }
-            AsrEvent::Mock(v) => {
-                v.get("type")
-                    .and_then(|t| t.as_str())
-                    .map(|t| t == "termination")
-                    .unwrap_or(false)
-            }
+            AsrEvent::AssemblyAi(v) => v
+                .get("type")
+                .and_then(|t| t.as_str())
+                .map(|t| t == "Termination")
+                .unwrap_or(false),
+            AsrEvent::Mock(v) => v
+                .get("type")
+                .and_then(|t| t.as_str())
+                .map(|t| t == "termination")
+                .unwrap_or(false),
         }
     }
 }
 
 /// Receive the next ASR event from the WebSocket receiver channel.
-pub async fn recv_event(
-    rx: &mut mpsc::Receiver<Message>,
-    provider: &str,
-) -> Result<AsrEvent> {
+pub async fn recv_event(rx: &mut mpsc::Receiver<Message>, provider: &str) -> Result<AsrEvent> {
     let msg = rx
         .recv()
         .await
@@ -341,10 +330,7 @@ mod tests {
         });
         let ev = AsrEvent::AssemblyAi(json);
         assert_eq!(ev.partial_text(), None);
-        assert_eq!(
-            ev.final_text(),
-            Some("Hello how are you today".to_string())
-        );
+        assert_eq!(ev.final_text(), Some("Hello how are you today".to_string()));
     }
 
     #[test]
@@ -372,8 +358,7 @@ mod tests {
 
     #[test]
     fn test_mock_final() {
-        let json =
-            serde_json::json!({"text": "testing complete", "is_final": true});
+        let json = serde_json::json!({"text": "testing complete", "is_final": true});
         let ev = AsrEvent::Mock(json);
         assert_eq!(ev.partial_text(), None);
         assert_eq!(ev.final_text(), Some("testing complete".to_string()));

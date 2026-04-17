@@ -3,9 +3,11 @@ use tauri::{Emitter, Manager};
 use crate::asr;
 use crate::error::{ParaError, Result};
 use crate::llm::recipe;
-use crate::state::{AppState, CaptureHandle};
+use crate::services::{folders, keys, meeting_notes, retrieval};
+use crate::state::{AppState, CaptureHandle, SessionContext};
 use crate::store::db::{
-    MeetingWithNotes, NoteRow, OrganizationRow, ParticipantRow, StandaloneNoteRow,
+    FolderRow, MeetingDetailRow, MeetingWithNotes, NoteRow, OrgSharedKeyStatusRow, OrganizationRow,
+    ParticipantRow, SegmentRow, StandaloneNoteRow, StructuredMeetingNote,
 };
 
 use serde::Serialize;
@@ -38,9 +40,6 @@ pub fn start_capture(
 
     let provider = provider.to_lowercase();
 
-    // Create meeting record in encrypted local store.
-    let meeting_id = state.store.create_meeting(&provider)?;
-
     // BYOK: keys come from env vars or OS keyring; never returned to frontend.
     // Mock provider doesn't need a key.
     let asr_key = if provider == "mock" {
@@ -51,6 +50,9 @@ pub fn start_capture(
             .get_provider_key(&provider)
             .ok_or_else(|| ParaError::MissingKey(provider.clone()))?
     };
+
+    // Create meeting record in encrypted local store only after config is valid.
+    let meeting_id = state.store.create_meeting(&provider)?;
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -72,13 +74,36 @@ pub fn start_capture(
             serde_json::json!({ "status": "starting pipeline" }),
         );
 
-        if let Err(e) =
-            asr::run_pipeline(app_handle.clone(), store, mid, config, asr_key, stop_rx).await
-        {
+        let run_result = asr::run_pipeline(
+            app_handle.clone(),
+            store.clone(),
+            mid.clone(),
+            config,
+            asr_key,
+            stop_rx,
+        )
+        .await;
+
+        if let Err(e) = run_result {
+            let _ = store.end_meeting(&mid);
             let _ = app_handle.emit(
                 "asr:status",
                 serde_json::json!({ "status": format!("pipeline error: {}", e) }),
             );
+            let _ = app_handle.emit(
+                "asr:lifecycle",
+                serde_json::json!({
+                    "state": "error",
+                    "meeting_id": mid.clone(),
+                    "message": e.to_string(),
+                }),
+            );
+        }
+
+        let managed_state = app_handle.state::<AppState>();
+        let mut capture = managed_state.capture.lock().unwrap();
+        if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(mid.as_str()) {
+            capture.take();
         }
     });
 
@@ -173,6 +198,19 @@ pub fn export(
     })
 }
 
+#[derive(Debug, Serialize)]
+pub struct MeetingDetailResp {
+    pub meeting: MeetingDetailRow,
+    pub user_notes: Vec<NoteRow>,
+    pub segments: Vec<SegmentRow>,
+    pub structured_note: Option<StructuredMeetingNote>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionContextResp {
+    pub session: SessionContext,
+}
+
 // ---- API key management ----
 
 const ALLOWED_PROVIDERS: &[&str] = &["deepgram", "assemblyai", "openai", "anthropic"];
@@ -188,7 +226,10 @@ pub fn save_api_key(
 ) -> Result<()> {
     let provider = provider.to_lowercase();
     if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
-        return Err(ParaError::KeyVault(format!("unknown provider: {}", provider)));
+        return Err(ParaError::KeyVault(format!(
+            "unknown provider: {}",
+            provider
+        )));
     }
     state
         .keyvault
@@ -209,7 +250,10 @@ pub fn has_api_key(state: tauri::State<'_, AppState>, provider: String) -> Resul
 pub fn delete_api_key(state: tauri::State<'_, AppState>, provider: String) -> Result<()> {
     let provider = provider.to_lowercase();
     if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
-        return Err(ParaError::KeyVault(format!("unknown provider: {}", provider)));
+        return Err(ParaError::KeyVault(format!(
+            "unknown provider: {}",
+            provider
+        )));
     }
     state
         .keyvault
@@ -218,11 +262,117 @@ pub fn delete_api_key(state: tauri::State<'_, AppState>, provider: String) -> Re
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_session_context(state: tauri::State<'_, AppState>) -> SessionContextResp {
+    let session = state.session.lock().unwrap().clone();
+    SessionContextResp { session }
+}
+
+#[tauri::command]
+pub fn set_session_context(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    user_id: Option<String>,
+    email: Option<String>,
+    active_org_id: Option<String>,
+) -> Result<()> {
+    state.store.set_session_context(
+        &mode,
+        user_id.as_deref(),
+        email.as_deref(),
+        active_org_id.as_deref(),
+    )?;
+    let mut session = state.session.lock().unwrap();
+    *session = SessionContext {
+        mode,
+        user_id,
+        email,
+        active_org_id,
+    };
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resolve_provider_key_source(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    org_id: Option<i64>,
+) -> keys::KeyResolutionStatus {
+    keys::resolve_provider_source(&state.keyvault, &provider.to_lowercase(), org_id)
+}
+
+#[tauri::command]
+pub fn list_org_shared_key_statuses(
+    state: tauri::State<'_, AppState>,
+    org_id: i64,
+) -> Result<Vec<OrgSharedKeyStatusRow>> {
+    keys::list_org_key_statuses(&state.store, org_id)
+}
+
+#[tauri::command]
+pub fn save_org_api_key(
+    state: tauri::State<'_, AppState>,
+    org_id: i64,
+    provider: String,
+    key: String,
+) -> Result<()> {
+    let provider = provider.to_lowercase();
+    if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
+        return Err(ParaError::KeyVault(format!(
+            "unknown provider: {}",
+            provider
+        )));
+    }
+    keys::save_org_key(&state.store, &state.keyvault, org_id, &provider, &key)
+}
+
+#[tauri::command]
+pub fn delete_org_api_key(
+    state: tauri::State<'_, AppState>,
+    org_id: i64,
+    provider: String,
+) -> Result<()> {
+    let provider = provider.to_lowercase();
+    if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
+        return Err(ParaError::KeyVault(format!(
+            "unknown provider: {}",
+            provider
+        )));
+    }
+    keys::delete_org_key(&state.store, &state.keyvault, org_id, &provider)
+}
+
 // ---- Meetings & Notes ----
+
+#[tauri::command]
+pub fn list_meeting_templates() -> Vec<meeting_notes::MeetingTemplateOption> {
+    meeting_notes::template_options()
+}
 
 #[tauri::command]
 pub fn list_meetings(state: tauri::State<'_, AppState>) -> Result<Vec<MeetingWithNotes>> {
     state.store.list_meetings()
+}
+
+#[tauri::command]
+pub fn get_meeting_detail(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<MeetingDetailResp> {
+    Ok(MeetingDetailResp {
+        meeting: state.store.get_meeting(&meeting_id)?,
+        user_notes: state.store.get_notes_for_meeting(&meeting_id)?,
+        segments: state.store.segments_for_meeting(&meeting_id)?,
+        structured_note: state.store.get_structured_meeting_note(&meeting_id)?,
+    })
+}
+
+#[tauri::command]
+pub fn list_segments(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<SegmentRow>> {
+    state.store.segments_for_meeting(&meeting_id)
 }
 
 #[tauri::command]
@@ -233,6 +383,133 @@ pub fn get_notes(state: tauri::State<'_, AppState>, meeting_id: String) -> Resul
 #[tauri::command]
 pub fn list_all_notes(state: tauri::State<'_, AppState>) -> Result<Vec<NoteRow>> {
     state.store.list_all_notes()
+}
+
+#[tauri::command]
+pub fn set_meeting_template(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    template_kind: String,
+) -> Result<()> {
+    let normalized = meeting_notes::normalize_template_kind(Some(&template_kind));
+    state.store.set_meeting_template(&meeting_id, &normalized)
+}
+
+#[tauri::command]
+pub fn generate_structured_meeting_notes(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    template_kind: Option<String>,
+) -> Result<StructuredMeetingNote> {
+    meeting_notes::generate_and_store(&state.store, &meeting_id, template_kind.as_deref())
+}
+
+#[tauri::command]
+pub fn get_structured_meeting_notes(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Option<StructuredMeetingNote>> {
+    state.store.get_structured_meeting_note(&meeting_id)
+}
+
+#[tauri::command]
+pub fn update_structured_note_summary(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    summary: String,
+) -> Result<()> {
+    state
+        .store
+        .update_structured_note_summary(&meeting_id, &summary)
+}
+
+#[tauri::command]
+pub fn update_structured_note_item(
+    state: tauri::State<'_, AppState>,
+    item_id: i64,
+    text: String,
+) -> Result<()> {
+    state.store.update_structured_note_item(item_id, &text)
+}
+
+#[tauri::command]
+pub fn ask_audire(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    scope: Option<String>,
+    meeting_id: Option<String>,
+    folder_id: Option<i64>,
+) -> Result<retrieval::AskAudireResp> {
+    retrieval::ask(
+        &state.store,
+        &query,
+        scope.as_deref().unwrap_or("all"),
+        meeting_id.as_deref(),
+        folder_id,
+    )
+}
+
+// ---- Folders ----
+
+#[tauri::command]
+pub fn list_folders(state: tauri::State<'_, AppState>) -> Result<Vec<FolderRow>> {
+    state.store.list_folders()
+}
+
+#[tauri::command]
+pub fn create_folder(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    kind: String,
+    color: Option<String>,
+) -> Result<FolderRow> {
+    folders::create_folder(&state.store, &name, &kind, color.as_deref())
+}
+
+#[tauri::command]
+pub fn update_folder(
+    state: tauri::State<'_, AppState>,
+    folder_id: i64,
+    name: String,
+    kind: String,
+    color: Option<String>,
+) -> Result<()> {
+    state
+        .store
+        .update_folder(folder_id, &name, &kind, color.as_deref())
+}
+
+#[tauri::command]
+pub fn delete_folder(state: tauri::State<'_, AppState>, folder_id: i64) -> Result<()> {
+    state.store.delete_folder(folder_id)
+}
+
+#[tauri::command]
+pub fn get_folder_detail(
+    state: tauri::State<'_, AppState>,
+    folder_id: i64,
+) -> Result<folders::FolderDetail> {
+    folders::get_folder_detail(&state.store, folder_id)
+}
+
+#[tauri::command]
+pub fn assign_meeting_folder(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    folder_id: Option<i64>,
+) -> Result<()> {
+    state.store.assign_meeting_folder(&meeting_id, folder_id)
+}
+
+#[tauri::command]
+pub fn assign_standalone_note_folder(
+    state: tauri::State<'_, AppState>,
+    note_id: i64,
+    folder_id: Option<i64>,
+) -> Result<()> {
+    state
+        .store
+        .assign_standalone_note_folder(note_id, folder_id)
 }
 
 // ---- Standalone Notes ----
@@ -264,17 +541,12 @@ pub fn update_standalone_note(
 }
 
 #[tauri::command]
-pub fn list_standalone_notes(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<StandaloneNoteRow>> {
+pub fn list_standalone_notes(state: tauri::State<'_, AppState>) -> Result<Vec<StandaloneNoteRow>> {
     state.store.list_standalone_notes()
 }
 
 #[tauri::command]
-pub fn delete_standalone_note(
-    state: tauri::State<'_, AppState>,
-    note_id: i64,
-) -> Result<()> {
+pub fn delete_standalone_note(state: tauri::State<'_, AppState>, note_id: i64) -> Result<()> {
     state.store.delete_standalone_note(note_id)
 }
 
@@ -308,9 +580,7 @@ pub fn list_participants(
 }
 
 #[tauri::command]
-pub fn list_all_participants(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<ParticipantRow>> {
+pub fn list_all_participants(state: tauri::State<'_, AppState>) -> Result<Vec<ParticipantRow>> {
     state.store.list_all_participants()
 }
 
@@ -326,8 +596,6 @@ pub fn add_organization(
 }
 
 #[tauri::command]
-pub fn list_organizations(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<OrganizationRow>> {
+pub fn list_organizations(state: tauri::State<'_, AppState>) -> Result<Vec<OrganizationRow>> {
     state.store.list_organizations()
 }

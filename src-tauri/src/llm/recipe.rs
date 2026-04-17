@@ -1,4 +1,5 @@
 use crate::error::{ParaError, Result};
+use crate::services::meeting_notes;
 use crate::state::AppState;
 
 /// "Recipes" are post-transcription transforms.
@@ -15,36 +16,12 @@ pub fn run_recipe(state: &AppState, meeting_id: &str, recipe_id: &str) -> Result
         )));
     }
 
-    let notes = state.store.notes_for_meeting(meeting_id)?;
+    let note = match state.store.get_structured_meeting_note(meeting_id)? {
+        Some(note) => note,
+        None => meeting_notes::generate_and_store(&state.store, meeting_id, None)?,
+    };
 
-    let retrieved = state
-        .store
-        .top_segments_for_query(meeting_id, "decision OR action OR next OR important", 8)?;
-
-    let mut out = String::new();
-    out.push_str("# Summary (local retrieval)\n\n");
-
-    out.push_str("## Your notes\n");
-    if notes.is_empty() {
-        out.push_str("- (no notes taken)\n");
-    } else {
-        for n in &notes {
-            out.push_str("- ");
-            out.push_str(n);
-            out.push('\n');
-        }
-    }
-
-    out.push_str("\n## Retrieved transcript highlights (FTS5/BM25)\n");
-    if retrieved.is_empty() {
-        out.push_str("- (no matching segments found)\n");
-    } else {
-        for t in &retrieved {
-            out.push_str("- ");
-            out.push_str(t);
-            out.push('\n');
-        }
-    }
+    let mut out = meeting_notes::render_markdown(&note);
 
     #[cfg(feature = "llm_openai")]
     {
@@ -58,9 +35,7 @@ pub fn run_recipe(state: &AppState, meeting_id: &str, recipe_id: &str) -> Result
     {
         if let Some(_key) = state.keyvault.get_provider_key("anthropic") {
             out.push_str("\n## LLM (Anthropic)\n");
-            out.push_str(
-                "Feature enabled; BYOK key found. TODO: implement in llm/anthropic.rs\n",
-            );
+            out.push_str("Feature enabled; BYOK key found. TODO: implement in llm/anthropic.rs\n");
         }
     }
 

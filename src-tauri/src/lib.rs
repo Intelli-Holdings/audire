@@ -1,12 +1,13 @@
 pub mod error;
-pub mod state;
 mod ipc;
+pub mod state;
 
-pub mod audio;
 pub mod asr;
-pub mod store;
+pub mod audio;
 pub mod keyvault;
 pub mod llm;
+pub mod services;
+pub mod store;
 
 use state::AppState;
 
@@ -22,9 +23,31 @@ pub fn run() {
             ipc::save_api_key,
             ipc::has_api_key,
             ipc::delete_api_key,
+            ipc::get_session_context,
+            ipc::set_session_context,
+            ipc::resolve_provider_key_source,
+            ipc::list_org_shared_key_statuses,
+            ipc::save_org_api_key,
+            ipc::delete_org_api_key,
+            ipc::list_meeting_templates,
             ipc::list_meetings,
+            ipc::get_meeting_detail,
+            ipc::list_segments,
             ipc::get_notes,
             ipc::list_all_notes,
+            ipc::generate_structured_meeting_notes,
+            ipc::get_structured_meeting_notes,
+            ipc::update_structured_note_summary,
+            ipc::update_structured_note_item,
+            ipc::set_meeting_template,
+            ipc::ask_audire,
+            ipc::list_folders,
+            ipc::create_folder,
+            ipc::update_folder,
+            ipc::delete_folder,
+            ipc::get_folder_detail,
+            ipc::assign_meeting_folder,
+            ipc::assign_standalone_note_folder,
             ipc::create_standalone_note,
             ipc::get_standalone_note,
             ipc::update_standalone_note,
