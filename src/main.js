@@ -22,10 +22,11 @@ let currentFolderId = null;
 let captureStartedAt = null;
 let captureTimerHandle = null;
 let captureRuntimeStatusText = 'Listening';
-let capturePreviewText = 'Waiting for speech...';
+let capturePreviewText = 'Listening...';
 let partialTranscript = null;
 let captureValidated = false;
 let selectedCaptureProvider = 'assemblyai';
+let captureAudioLevel = 0;
 const appWindow = getCurrentWindow();
 const currentWindowLabel = appWindow.label;
 const CAPTURE_UI_STATE_KEY = 'audire.capture.ui';
@@ -55,6 +56,15 @@ const folderModalCancelBtn = document.getElementById('folderModalCancelBtn');
 
 // ---- Event listeners from Tauri ----
 async function registerTauriListeners() {
+  await listen('asr:audio_level', (event) => {
+    captureAudioLevel = Number(event.payload?.level || 0);
+    syncCaptureWave();
+    if (!partialText) {
+      capturePreviewText = captureAudioLevel > 0.045 ? 'Audio detected' : 'Listening...';
+      updateCapturePillText();
+    }
+  });
+
   await listen('asr:partial', (event) => {
     partialText = event.payload?.text || '';
     partialTranscript = partialText ? {
@@ -114,6 +124,8 @@ async function registerTauriListeners() {
     if (nextState === 'stopped') {
       isCapturing = false;
       hideCapturePill();
+      captureAudioLevel = 0;
+      syncCaptureWave();
       persistCaptureUiState();
       if (currentView === 'meeting') {
         renderMeeting();
@@ -124,6 +136,8 @@ async function registerTauriListeners() {
     if (nextState === 'error') {
       isCapturing = false;
       hideCapturePill();
+      captureAudioLevel = 0;
+      syncCaptureWave();
       if (message) {
         showToast(message, 'error');
       }
@@ -238,10 +252,25 @@ function updateCapturePillText() {
     captureRuntimeStatus.textContent = captureRuntimeStatusText || 'Listening';
   }
   if (capturePreview) {
-    capturePreview.textContent = capturePreviewText || 'Waiting for speech...';
+    capturePreview.textContent = capturePreviewText || 'Listening...';
   }
   syncRecorderPillUi();
   persistCaptureUiState();
+}
+
+function syncCaptureWave() {
+  const apply = (bars) => {
+    if (!bars.length) return;
+    const now = Date.now() / 140;
+    bars.forEach((bar, index) => {
+      const wobble = 0.82 + Math.sin(now + index * 0.9) * 0.18;
+      const value = Math.max(0.14, captureAudioLevel * wobble + (captureAudioLevel > 0.02 ? 0.08 : 0));
+      bar.style.setProperty('--wave-level', value.toFixed(3));
+    });
+  };
+
+  apply(Array.from(document.querySelectorAll('.capture-wave span')));
+  apply(Array.from(document.querySelectorAll('.recorder-pill-wave span')));
 }
 
 function restoreFloatingCaptureBar() {
@@ -344,10 +373,12 @@ function dockCaptureBarInMeeting() {
 function showCapturePill(provider) {
   captureStartedAt = Date.now();
   captureRuntimeStatusText = 'Connecting';
-  capturePreviewText = 'Waiting for speech...';
+  capturePreviewText = 'Listening...';
+  captureAudioLevel = 0;
   captureBar.classList.remove('hidden');
   captureStatus.textContent = 'Recording';
   updateCapturePillText();
+  syncCaptureWave();
   updateCaptureTimer();
   if (captureTimerHandle) clearInterval(captureTimerHandle);
   captureTimerHandle = window.setInterval(updateCaptureTimer, 1000);
@@ -361,9 +392,11 @@ function hideCapturePill() {
   }
   captureStartedAt = null;
   captureRuntimeStatusText = 'Listening';
-  capturePreviewText = 'Waiting for speech...';
+  capturePreviewText = 'Listening...';
+  captureAudioLevel = 0;
   updateCaptureTimer();
   updateCapturePillText();
+  syncCaptureWave();
   captureBar.classList.add('hidden');
   captureStatus.textContent = 'Idle';
   void syncRecorderPillWindow();
@@ -380,6 +413,7 @@ function persistCaptureUiState() {
       finals,
       partialText,
       partialTranscript,
+      captureAudioLevel,
     }));
   } catch {}
 }
@@ -394,6 +428,7 @@ function hydrateCaptureUiState() {
     captureStartedAt = state.captureStartedAt ?? captureStartedAt;
     captureRuntimeStatusText = state.captureRuntimeStatusText || captureRuntimeStatusText;
     capturePreviewText = state.capturePreviewText || capturePreviewText;
+    captureAudioLevel = Number(state.captureAudioLevel || 0);
     partialText = state.partialText || '';
     partialTranscript = partialText ? {
       text: partialText,
@@ -404,6 +439,7 @@ function hydrateCaptureUiState() {
 
     if (isCapturing && captureBar) {
       captureBar.classList.remove('hidden');
+      syncCaptureWave();
       // Validate the capture is still running: if no lifecycle "running" event
       // arrives within 2s, assume it's stale and reset.
       setTimeout(() => {
@@ -425,7 +461,7 @@ function syncRecorderPillUi() {
   const previewEl = document.getElementById('recorderPillPreview');
   const timerEl = document.getElementById('recorderPillTimer');
   if (statusEl) statusEl.textContent = captureRuntimeStatusText || 'Listening';
-  if (previewEl) previewEl.textContent = capturePreviewText || 'Waiting for speech...';
+  if (previewEl) previewEl.textContent = capturePreviewText || 'Listening...';
   if (timerEl) {
     timerEl.textContent = captureStartedAt
       ? formatCaptureDuration(Date.now() - captureStartedAt)
@@ -533,7 +569,7 @@ async function startCapture(provider, opts = {}) {
   finals.length = 0;
   partialText = '';
   partialTranscript = null;
-  capturePreviewText = 'Waiting for speech...';
+  capturePreviewText = 'Listening...';
 
   try {
     const resp = await invoke('start_capture', {
@@ -600,16 +636,16 @@ function renderView(view) {
 }
 
 async function renderHome() {
-  const today = new Date();
-  const dateStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const dayName = today.toLocaleDateString('en-US', { weekday: 'short' });
-
   // Fetch recent meetings
   let meetings = [];
+  let upcomingEvents = [];
   try {
-    meetings = await invoke('list_meetings');
+    [meetings, upcomingEvents] = await Promise.all([
+      invoke('list_meetings'),
+      invoke('list_upcoming_calendar_events').catch(() => []),
+    ]);
   } catch (e) {
-    console.error('list_meetings error:', e);
+    console.error('home data load error:', e);
   }
 
   if (!selectedCaptureProvider) {
@@ -629,25 +665,40 @@ async function renderHome() {
   }
   const hasConfiguredCaptureProvider = Boolean(keyStatusCache.deepgram || keyStatusCache.assemblyai);
 
-  const recentHtml = meetings.length > 0
-    ? meetings.slice(0, 5).map(m => {
-        const d = new Date(m.started_at * 1000);
-        const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        const title = m.title || 'Meeting notes';
-        return `
-          <div class="meeting-item" data-mid="${escapeHtml(m.id)}">
-            <div>
-              <div class="meeting-title">${escapeHtml(title)}</div>
-              <div class="meeting-time">${timeStr} &middot; ${m.note_count} note${m.note_count !== 1 ? 's' : ''}</div>
-            </div>
-          </div>`;
-      }).join('')
-    : `<div class="empty-state">
-        <div class="empty-state-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  const sortedMeetings = [...meetings].sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+  const groupedRecentMeetings = groupMeetingsByDate(sortedMeetings.slice(0, 8));
+
+  const upcomingHtml = upcomingEvents.length > 0
+    ? renderUpcomingCalendar(upcomingEvents)
+    : `
+      <div class="home-empty-card">
+        <div class="home-empty-card-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
         </div>
-        <h3>No meetings yet</h3>
-        <p>Start a capture session to transcribe your first meeting.</p>
+        <div>
+          <div class="home-empty-card-title">No upcoming meetings yet</div>
+          <div class="home-empty-card-copy">Connect a calendar source to see upcoming meetings here.</div>
+        </div>
+      </div>
+    `;
+
+  const recentHtml = groupedRecentMeetings.length > 0
+    ? groupedRecentMeetings.map(group => `
+        <div class="home-recent-group">
+          <div class="home-recent-date">${escapeHtml(group.label)}</div>
+          <div class="home-recent-list">
+            ${group.items.map(meeting => renderRecentMeetingCard(meeting)).join('')}
+          </div>
+        </div>
+      `).join('')
+    : `<div class="home-empty-card">
+        <div class="home-empty-card-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </div>
+        <div>
+          <div class="home-empty-card-title">No past meetings yet</div>
+          <div class="home-empty-card-copy">Start a capture session to build your recent notes list.</div>
+        </div>
       </div>`;
 
   content.innerHTML = `
@@ -680,33 +731,17 @@ async function renderHome() {
         </div>
       </div>
 
-      <div class="view-header">
-        <h1>Coming up</h1>
-      </div>
-
-      <div class="coming-up">
-        <div class="date-group">
-          <div class="date-label">
-            <div class="day">${today.getDate()}</div>
-            <div class="month-day">${dateStr}<br/>${dayName}</div>
-          </div>
-          <div class="meetings-col">
-            <div class="meeting-item" onclick="window.location.hash='meeting'">
-              <div>
-                <div class="meeting-title">Quick capture session</div>
-                <div class="meeting-time">Start anytime -- captures mic + system audio</div>
-              </div>
-            </div>
-            <p class="text-muted" style="padding: 8px 14px; font-size: 13px;">
-              Audire captures audio in the background during your Google Meet, Teams, or Zoom calls.
-              No bots join your meeting -- just local audio capture.
-            </p>
-          </div>
+      <div class="home-section">
+        <div class="home-section-header">
+          <h1>Coming up</h1>
         </div>
+        ${upcomingHtml}
       </div>
 
-      <div style="margin-top: 32px;">
-        <h2 style="font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--text-secondary);">Recent</h2>
+      <div class="home-section home-recent-section">
+        <div class="home-section-header">
+          <h2>Recent</h2>
+        </div>
         ${recentHtml}
       </div>
     </div>
@@ -727,25 +762,184 @@ async function renderHome() {
   });
 }
 
+function renderUpcomingCalendar(events) {
+  return `
+    <div class="coming-up-card">
+      ${events.map(event => {
+        const start = new Date(event.start);
+        const end = new Date(event.end);
+        const day = start.getDate();
+        const month = start.toLocaleDateString('en-US', { month: 'short' });
+        const weekday = start.toLocaleDateString('en-US', { weekday: 'short' });
+        const timeLabel = `${formatClockTime(start)}-${formatClockTime(end)}`;
+        return `
+          <div class="coming-up-row">
+            <div class="coming-up-date">
+              <div class="coming-up-day">${day}</div>
+              <div class="coming-up-month">${escapeHtml(month)}<br/>${escapeHtml(weekday)}</div>
+            </div>
+            <div class="coming-up-item">
+              <div class="coming-up-title">${escapeHtml(event.title)}</div>
+              <div class="coming-up-time">${escapeHtml(timeLabel)}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function groupMeetingsByDate(meetings) {
+  const groups = new Map();
+  for (const meeting of meetings) {
+    const date = new Date(meeting.started_at * 1000);
+    const key = date.toDateString();
+    if (!groups.has(key)) {
+      groups.set(key, {
+        label: formatHomeRecentDate(date),
+        items: [],
+      });
+    }
+    groups.get(key).items.push(meeting);
+  }
+  return Array.from(groups.values());
+}
+
+function renderRecentMeetingCard(meeting) {
+  const date = new Date(meeting.started_at * 1000);
+  const title = meeting.title || 'Meeting notes';
+  const timeStr = formatClockTime(date);
+  const subtitle = meeting.note_preview || `${meeting.note_count} note${meeting.note_count === 1 ? '' : 's'}`;
+  return `
+    <button class="home-recent-card" type="button" data-mid="${escapeHtml(meeting.id)}">
+      <div class="home-recent-avatar">${escapeHtml((title || 'M').trim().charAt(0).toUpperCase())}</div>
+      <div class="home-recent-copy">
+        <div class="home-recent-title">${escapeHtml(title)}</div>
+        <div class="home-recent-subtitle">${escapeHtml(subtitle)}</div>
+      </div>
+      <div class="home-recent-time">${escapeHtml(timeStr)}</div>
+    </button>
+  `;
+}
+
 async function renderMeeting() {
   meetingSegments = [];
   meetingUserNotes = [];
   currentStructuredNote = null;
   currentMeeting = null;
+  let participants = [];
+  let folders = [];
 
   if (meetingId) {
     try {
-      const detail = await invoke('get_meeting_detail', { meetingId });
+      const [detail, meetingParticipants, availableFolders] = await Promise.all([
+        invoke('get_meeting_detail', { meetingId }),
+        invoke('list_participants', { meetingId }),
+        invoke('list_folders'),
+      ]);
       currentMeeting = detail.meeting;
       meetingSegments = detail.segments || [];
       meetingUserNotes = detail.user_notes || [];
       currentStructuredNote = detail.structured_note || null;
+      participants = meetingParticipants || [];
+      folders = availableFolders || [];
     } catch (e) {
       console.error('Meeting detail load error:', e);
     }
   }
 
   const title = currentMeeting?.title || (meetingId ? 'Meeting Notes' : 'Live Session');
+
+  if (!isCapturing) {
+    const startedAt = currentMeeting?.started_at
+      ? new Date(currentMeeting.started_at * 1000)
+      : null;
+    const dateLabel = startedAt
+      ? startedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : 'Today';
+    const shareText = buildMeetingShareText(title, currentStructuredNote, meetingUserNotes, meetingSegments);
+    const folderOptions = [
+      `<option value="">Add to folder</option>`,
+      ...folders.map(folder => `
+        <option value="${folder.id}" ${currentMeeting?.folder_id === folder.id ? 'selected' : ''}>
+          ${escapeHtml(folder.name)}
+        </option>
+      `),
+    ].join('');
+    const noteBlocksHtml = currentStructuredNote
+      ? renderStructuredNotes(currentStructuredNote)
+      : renderMeetingDraftState(meetingUserNotes, meetingSegments);
+
+    content.innerHTML = `
+      <div class="meeting-note-shell">
+        <div class="meeting-note-toolbar">
+          <button class="meeting-nav-btn" type="button" id="meetingBackBtn" aria-label="Back">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div class="meeting-note-toolbar-actions">
+            <button class="meeting-toolbar-btn" type="button" id="meetingMoreBtn" aria-label="More">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+            </button>
+            <div class="meeting-share-group">
+              <button class="meeting-share-btn" type="button" id="meetingShareBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>
+                Share
+              </button>
+              <button class="meeting-link-btn" type="button" id="meetingCopyLinkBtn" aria-label="Copy text link">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </button>
+              <div class="meeting-share-menu hidden" id="meetingShareMenu">
+                <button type="button" data-share-action="email">Draft email</button>
+                <button type="button" data-share-action="copy">Copy text</button>
+                <button type="button" data-share-action="export">Export markdown</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="meeting-note-page">
+          <input id="meetingTitleInput" class="meeting-note-title-input" type="text" value="${escapeHtml(title)}" placeholder="Untitled meeting" />
+
+          <div class="meeting-note-meta">
+            <span class="meeting-meta-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+              ${escapeHtml(dateLabel)}
+            </span>
+            <span class="meeting-meta-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              ${participants.length || 0} attendee${participants.length === 1 ? '' : 's'}
+            </span>
+            <label class="meeting-folder-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+              <select id="meetingFolderSelect">${folderOptions}</select>
+            </label>
+          </div>
+
+          <div class="meeting-note-content">
+            ${noteBlocksHtml}
+          </div>
+
+          <details class="meeting-transcript-drawer">
+            <summary>Transcript</summary>
+            <div class="transcript-live-panel meeting-transcript-history">
+              <div class="transcript-body" id="transcriptBody">
+                <div class="transcript-feed" id="transcriptContent"></div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+    `;
+
+    updateTranscript();
+    bindMeetingDocument({
+      title,
+      shareText,
+      currentFolderId: currentMeeting?.folder_id ?? null,
+    });
+    bindStructuredNoteEditors();
+    return;
+  }
 
   content.innerHTML = `
     <div class="meeting-detail">
@@ -773,6 +967,7 @@ async function renderMeeting() {
 
   updateTranscript();
   dockCaptureBarInMeeting();
+  syncCaptureWave();
 }
 
 function renderStructuredNotes(note) {
@@ -811,9 +1006,51 @@ function renderStructuredNotes(note) {
   return `
     <div class="structured-summary-card">
       <label class="text-muted" style="font-size:12px;">Summary</label>
-      <textarea id="structuredSummaryInput" class="chat-textarea" rows="4">${escapeHtml(note.summary || '')}</textarea>
+      <textarea id="structuredSummaryInput" class="meeting-document-textarea structured-summary-input" rows="5">${escapeHtml(note.summary || '')}</textarea>
     </div>
     <div class="structured-sections">${sectionsHtml}</div>
+  `;
+}
+
+function renderMeetingDraftState(userNotes, segments) {
+  const notesHtml = userNotes.length > 0
+    ? userNotes.map(note => `
+      <div class="meeting-note-block">
+        <div class="meeting-note-block-label">Saved note</div>
+        <p>${escapeHtml(note.text)}</p>
+      </div>
+    `).join('')
+    : '';
+
+  const transcriptPreview = segments.slice(0, 8).map(seg => `
+    <div class="meeting-transcript-preview-line">${escapeHtml(seg.text)}</div>
+  `).join('');
+
+  return `
+    <div class="meeting-empty-draft">
+      ${notesHtml || `
+        <div class="meeting-note-block">
+          <div class="meeting-note-block-label">Notes</div>
+          <p>No structured note has been generated for this meeting yet.</p>
+        </div>
+      `}
+      <div class="meeting-draft-actions">
+        <button class="btn btn-primary" type="button" id="generateMeetingNotesBtn">Generate notes</button>
+      </div>
+      <div class="meeting-note-block">
+        <div class="meeting-note-block-label">Add your thoughts</div>
+        <textarea id="meetingAppendNoteInput" class="meeting-document-textarea" rows="5" placeholder="Write your notes here..."></textarea>
+        <div class="meeting-document-actions">
+          <button class="btn btn-ghost" type="button" id="meetingAppendNoteBtn">Save note</button>
+        </div>
+      </div>
+      ${transcriptPreview ? `
+        <div class="meeting-note-block">
+          <div class="meeting-note-block-label">Transcript preview</div>
+          <div class="meeting-transcript-preview">${transcriptPreview}</div>
+        </div>
+      ` : ''}
+    </div>
   `;
 }
 
@@ -849,6 +1086,149 @@ function bindStructuredNoteEditors() {
   });
 }
 
+function buildMeetingShareText(title, structuredNote, userNotes, segments) {
+  const lines = [title];
+
+  if (structuredNote?.summary) {
+    lines.push('', structuredNote.summary);
+  }
+
+  if (structuredNote?.sections?.length) {
+    for (const section of structuredNote.sections) {
+      if (!section.items?.length) continue;
+      lines.push('', section.label);
+      for (const item of section.items) {
+        lines.push(`- ${item.text}`);
+      }
+    }
+  } else if (userNotes.length) {
+    lines.push('', ...userNotes.map(note => note.text));
+  } else if (segments.length) {
+    lines.push('', ...segments.map(seg => seg.text));
+  }
+
+  return lines.join('\n').trim();
+}
+
+function bindMeetingDocument({ title, shareText, currentFolderId }) {
+  const currentDocumentTitle = () =>
+    document.getElementById('meetingTitleInput')?.value.trim() || title;
+
+  document.getElementById('meetingBackBtn')?.addEventListener('click', () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate('home');
+    }
+  });
+
+  document.getElementById('meetingTitleInput')?.addEventListener('blur', async (event) => {
+    const nextTitle = event.target.value.trim();
+    if (!meetingId || !nextTitle || nextTitle === title) return;
+    try {
+      await invoke('update_meeting_title', { meetingId, title: nextTitle });
+      if (currentMeeting) currentMeeting.title = nextTitle;
+    } catch (err) {
+      console.error('Meeting title update error:', err);
+      showToast('Failed to update title', 'error');
+    }
+  });
+
+  document.getElementById('meetingFolderSelect')?.addEventListener('change', async (event) => {
+    if (!meetingId) return;
+    const raw = event.target.value;
+    const folderId = raw ? parseInt(raw, 10) : null;
+    if (folderId === currentFolderId) return;
+    try {
+      await invoke('assign_meeting_folder', { meetingId, folderId });
+      if (currentMeeting) {
+        currentMeeting.folder_id = folderId;
+      }
+      showToast('Folder updated', 'success');
+    } catch (err) {
+      console.error('Assign meeting folder error:', err);
+      showToast('Failed to update folder', 'error');
+    }
+  });
+
+  document.getElementById('generateMeetingNotesBtn')?.addEventListener('click', async () => {
+    if (!meetingId) return;
+    try {
+      currentStructuredNote = await invoke('generate_structured_meeting_notes', { meetingId, templateKind: null });
+      renderMeeting();
+    } catch (err) {
+      console.error('Generate meeting notes error:', err);
+      showToast('Failed to generate notes', 'error');
+    }
+  });
+
+  document.getElementById('meetingAppendNoteBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('meetingAppendNoteInput');
+    const text = input?.value.trim();
+    if (!meetingId || !text) return;
+    try {
+      await invoke('append_note', { meetingId, text });
+      showToast('Note saved', 'success');
+      renderMeeting();
+    } catch (err) {
+      console.error('Append meeting note error:', err);
+      showToast('Failed to save note', 'error');
+    }
+  });
+
+  const shareMenu = document.getElementById('meetingShareMenu');
+  document.getElementById('meetingMoreBtn')?.addEventListener('click', () => {
+    shareMenu?.classList.toggle('hidden');
+  });
+  document.getElementById('meetingShareBtn')?.addEventListener('click', () => {
+    shareMenu?.classList.toggle('hidden');
+  });
+  document.getElementById('meetingCopyLinkBtn')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(shareText);
+      showToast('Copied note text', 'success');
+    } catch (err) {
+      console.error('Copy note text error:', err);
+      showToast('Copy failed', 'error');
+    }
+  });
+
+  document.querySelectorAll('[data-share-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      shareMenu?.classList.add('hidden');
+      const action = button.dataset.shareAction;
+      if (action === 'copy') {
+        try {
+          await navigator.clipboard.writeText(shareText);
+          showToast('Copied note text', 'success');
+        } catch (err) {
+          console.error('Copy note text error:', err);
+          showToast('Copy failed', 'error');
+        }
+        return;
+      }
+      if (action === 'export') {
+        await exportMeeting();
+        return;
+      }
+      if (action === 'email') {
+        const mailto = `mailto:?subject=${encodeURIComponent(currentDocumentTitle())}&body=${encodeURIComponent(shareText)}`;
+        window.location.href = mailto;
+      }
+    });
+  });
+
+  document.addEventListener('click', dismissMeetingShareMenu, true);
+}
+
+function dismissMeetingShareMenu(event) {
+  const menu = document.getElementById('meetingShareMenu');
+  const group = document.querySelector('.meeting-share-group');
+  if (!menu || !group || group.contains(event.target)) return;
+  menu.classList.add('hidden');
+  document.removeEventListener('click', dismissMeetingShareMenu, true);
+}
+
 async function renderChat() {
   if (foldersCache.length === 0) {
     try {
@@ -857,11 +1237,6 @@ async function renderChat() {
       console.error('Folder load error:', e);
     }
   }
-
-  let recentMeetings = [];
-  try {
-    recentMeetings = await invoke('list_meetings');
-  } catch {}
 
   content.innerHTML = `
     <div class="chat-view">
@@ -891,21 +1266,6 @@ async function renderChat() {
       </div>
 
       <div id="chatResponse" class="chat-response"></div>
-
-      ${recentMeetings.length > 0 ? `
-      <div class="chat-section">
-        <h3 class="chat-section-label">Recents</h3>
-        <div class="chat-recents">
-          ${recentMeetings.slice(0, 5).map(m => `
-            <a class="chat-recent-item" href="#" data-goto-meeting="${m.id}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span class="chat-recent-title">${escapeHtml(m.title || 'Untitled meeting')}</span>
-              <span class="chat-recent-ago">${formatRelativeTime(m.started_at)}</span>
-            </a>
-          `).join('')}
-        </div>
-      </div>
-      ` : ''}
 
       <div class="chat-section">
         <h3 class="chat-section-label">Recipes</h3>
@@ -1407,6 +1767,53 @@ async function renderSettings() {
       </div>`;
   }
 
+  let calendarStatuses = [];
+  try {
+    calendarStatuses = await invoke('list_calendar_statuses');
+  } catch (e) {
+    console.error('list_calendar_statuses error:', e);
+  }
+
+  const calendarProviders = [
+    {
+      id: 'google',
+      label: 'Google Calendar',
+      clientPlaceholder: 'Google OAuth desktop client ID',
+      tenantPlaceholder: '',
+      help: 'Uses Google OAuth for Desktop Apps and reads your upcoming calendar events.',
+    },
+    {
+      id: 'microsoft',
+      label: 'Microsoft Outlook',
+      clientPlaceholder: 'Microsoft Entra application (client) ID',
+      tenantPlaceholder: 'Tenant ID or common',
+      help: 'Uses Microsoft identity platform OAuth and reads your Outlook calendar events.',
+    },
+  ];
+
+  const calendarRows = calendarProviders.map(provider => {
+    const status = calendarStatuses.find(row => row.provider === provider.id) || {};
+    return `
+      <div class="calendar-row">
+        <div class="calendar-provider-copy">
+          <div class="provider-label">${provider.label}</div>
+          <div class="text-muted" style="font-size:12px;">${provider.help}</div>
+          ${status.email ? `<div class="text-muted" style="font-size:12px; margin-top:4px;">Connected as ${escapeHtml(status.email)}</div>` : ''}
+        </div>
+        <div class="calendar-provider-fields">
+          <input type="text" class="key-input" id="calendar-client-${provider.id}" placeholder="${provider.clientPlaceholder}" />
+          ${provider.id === 'microsoft' ? `<input type="text" class="key-input" id="calendar-tenant-${provider.id}" placeholder="${provider.tenantPlaceholder}" />` : ''}
+        </div>
+        <span class="key-status ${status.connected ? 'configured' : status.configured ? 'missing' : 'missing'}">
+          ${status.connected ? 'Connected' : status.configured ? 'Configured' : 'Not set'}
+        </span>
+        <button class="btn-primary-sm" data-save-calendar-config="${provider.id}">Save config</button>
+        <button class="btn-ghost" data-connect-calendar="${provider.id}" ${status.configured ? '' : 'disabled'}>${status.connected ? 'Reconnect' : 'Connect'}</button>
+        ${status.connected || status.configured ? `<button class="btn-danger-sm" data-disconnect-calendar="${provider.id}">Disconnect</button>` : ''}
+      </div>
+    `;
+  }).join('');
+
   content.innerHTML = `
     <div class="view">
       <div class="view-header">
@@ -1421,6 +1828,15 @@ async function renderSettings() {
           They are never sent to the frontend or logged.
         </p>
         ${keyRows}
+      </div>
+
+      <div class="settings-section">
+        <h2>Calendars</h2>
+        <p class="text-muted" style="font-size:13px; margin-bottom:16px;">
+          Add your Google and Microsoft OAuth app details, then connect the accounts you want Audire to read for upcoming meetings.
+          For Google use a Desktop OAuth client. For Microsoft use a Mobile and desktop public client with localhost redirect enabled.
+        </p>
+        ${calendarRows}
       </div>
 
       <div class="settings-section">
@@ -1470,6 +1886,50 @@ async function renderSettings() {
         renderSettings();
       } catch (e) {
         showToast(`Failed to delete key: ${e}`, 'error');
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-save-calendar-config]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.saveCalendarConfig;
+      const clientId = document.getElementById(`calendar-client-${provider}`)?.value.trim();
+      const tenantId = document.getElementById(`calendar-tenant-${provider}`)?.value.trim() || null;
+      if (!clientId) return;
+      try {
+        await invoke('save_calendar_config', { provider, clientId, tenantId });
+        showToast(`${provider} calendar config saved`, 'success');
+        renderSettings();
+      } catch (e) {
+        showToast(`Failed to save ${provider} calendar config: ${e}`, 'error');
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-connect-calendar]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.connectCalendar;
+      btn.disabled = true;
+      try {
+        await invoke('connect_calendar_provider', { provider });
+        showToast(`${provider} calendar connected`, 'success');
+        renderSettings();
+      } catch (e) {
+        showToast(`Failed to connect ${provider}: ${e}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-disconnect-calendar]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.disconnectCalendar;
+      try {
+        await invoke('disconnect_calendar_provider', { provider });
+        showToast(`${provider} calendar disconnected`, 'success');
+        renderSettings();
+      } catch (e) {
+        showToast(`Failed to disconnect ${provider}: ${e}`, 'error');
       }
     });
   });
@@ -1596,7 +2056,7 @@ function renderRecorderPill() {
         <div class="recorder-pill-dot"></div>
         <div class="recorder-pill-timer" id="recorderPillTimer">00:00</div>
         <div class="recorder-pill-status" id="recorderPillStatus">Listening</div>
-        <div class="recorder-pill-preview" id="recorderPillPreview">Waiting for speech...</div>
+        <div class="recorder-pill-preview" id="recorderPillPreview">Listening...</div>
       </div>
       <div class="recorder-pill-wave" aria-hidden="true">
         <span></span>
@@ -1614,6 +2074,7 @@ function renderRecorderPill() {
   `;
 
   syncRecorderPillUi();
+  syncCaptureWave();
 
   document.getElementById('recorderPillStopBtn')?.addEventListener('click', () => {
     stopCapture();
@@ -1694,19 +2155,28 @@ function updateTranscript() {
   if (!el) return;
 
   let html = '';
-  const transcriptRows = meetingSegments.length > 0 && !isCapturing
-    ? meetingSegments.map(seg => ({
-        id: seg.id,
-        ts_ms: seg.ts_ms,
-        text: seg.text,
-        kind: 'formatted-final',
-      }))
-    : finals.map(f => ({
-        id: null,
-        ts_ms: f.ts_ms,
-        text: f.text,
-        kind: f.formatted ? 'formatted-final' : 'plain-final',
-      }));
+  const persistedRows = meetingSegments.map(seg => ({
+    id: seg.id,
+    ts_ms: seg.ts_ms,
+    text: seg.text,
+    kind: 'formatted-final',
+  }));
+
+  const persistedKeys = new Set(
+    persistedRows.map(row => `${row.ts_ms}:${row.text}`),
+  );
+
+  const liveRows = finals
+    .map(f => ({
+      id: null,
+      ts_ms: f.ts_ms,
+      text: f.text,
+      kind: f.formatted ? 'formatted-final' : 'plain-final',
+    }))
+    .filter(row => !persistedKeys.has(`${row.ts_ms}:${row.text}`));
+
+  const transcriptRows = [...persistedRows, ...liveRows]
+    .sort((a, b) => a.ts_ms - b.ts_ms);
 
   if (!transcriptRows.length && !partialText) {
     html = `<p class="transcript-waiting">${isCapturing ? 'Listening...' : 'No transcript yet.'}</p>`;
@@ -1743,6 +2213,24 @@ function formatDateTime(tsMs) {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function formatClockTime(value) {
+  return value.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function formatHomeRecentDate(value) {
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const startOfValue = new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const diffDays = Math.round((startOfToday - startOfValue) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return value.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function formatShortTime(tsMs) {

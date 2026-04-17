@@ -27,6 +27,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Intell Holdings Inc",
+    "copyright": "Copyright © 2026 Intell Holdings Inc. All rights reserved.",
     "icon": [
       "icons/icon.ico"
     ],

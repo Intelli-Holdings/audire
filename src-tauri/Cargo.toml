@@ -1,8 +1,8 @@
 [package]
 name = "audire"
 version = "0.1.0"
-description = "Audire — local-first transcription + notes"
-authors = ["Audire"]
+description = "Audire - local-first transcription and notes"
+authors = ["Intell Holdings Inc"]
 edition = "2021"
 license = "MIT"
 default-run = "audire"
@@ -49,6 +49,7 @@ directories = "5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+ring = "0.17"
 futures-util = "0.3"
 http = "1"
 
@@ -61,8 +62,11 @@ rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"]
 
 # KeyVault (OS credential stores: Keychain / Credential Manager / Secret Service)
 
-# Optional LLM gateways (default OFF — enable via --features llm_openai,llm_anthropic)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+# HTTP clients for calendar integrations and optional LLM gateways
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+webbrowser = "1"
+urlencoding = "2.1"
 
 # Windows system audio capture (WASAPI loopback)
 [target.'cfg(windows)'.dependencies]
@@ -78,8 +82,8 @@ default = ["asr_deepgram", "asr_assemblyai", "sys_audio_windows"]
 asr_deepgram = []
 asr_assemblyai = []
 # Optional LLM gateways
-llm_openai = ["dep:reqwest"]
-llm_anthropic = ["dep:reqwest"]
+llm_openai = []
+llm_anthropic = []
 # OS system audio backends
 sys_audio_windows = ["dep:wasapi"]
 sys_audio_macos_sck = []
