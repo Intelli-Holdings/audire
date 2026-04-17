@@ -21,7 +21,7 @@ pub fn run_recipe(state: &AppState, meeting_id: &str, recipe_id: &str) -> Result
         None => meeting_notes::generate_and_store(&state.store, meeting_id, None)?,
     };
 
-    let mut out = meeting_notes::render_markdown(&note);
+    let out = meeting_notes::render_markdown(&note);
 
     #[cfg(feature = "llm_openai")]
     {
