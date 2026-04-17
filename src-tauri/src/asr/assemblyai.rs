@@ -3,7 +3,7 @@
 // Protocol reference: https://www.assemblyai.com/docs/api-reference/streaming-api/universal-3-pro-streaming/universal-3-pro-streaming
 // ForceEndpoint + Terminate guide: https://www.assemblyai.com/docs/streaming/universal-3-pro
 //
-// URL: wss://streaming.assemblyai.com/v3/ws?speech_model=u3-rt-pro&sample_rate=16000&encoding=pcm_s16le
+// URL: wss://streaming.assemblyai.com/v3/ws?speech_model=u3-rt-pro&sample_rate=16000&encoding=pcm_s16le&format_turns=true&...
 // Auth: Authorization: <KEY>
 // Send: binary audio chunks between 50ms and 1000ms (we use 100ms = 3200 bytes @ 16kHz mono i16)
 // Receive: Begin, Turn (partial if end_of_turn=false, final if end_of_turn=true), Termination
@@ -19,10 +19,22 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 /// AssemblyAI v3 streaming endpoint with Universal-3 Pro model.
+///
+/// Key parameters aligned with AssemblyAI reference:
+/// - format_turns: enables formatted output (punctuation, capitalization)
+/// - end_of_turn_confidence_threshold: sensitivity for end-of-turn detection
+/// - min_end_of_turn_silence_when_confident: ms of silence when confident a turn ended
+/// - max_turn_silence: ms of silence before forced end of turn
+/// - vad_threshold: voice-activity detection sensitivity
 const AAI_URL: &str = "wss://streaming.assemblyai.com/v3/ws\
     ?speech_model=u3-rt-pro\
     &sample_rate=16000\
-    &encoding=pcm_s16le";
+    &encoding=pcm_s16le\
+    &format_turns=true\
+    &end_of_turn_confidence_threshold=0.4\
+    &min_end_of_turn_silence_when_confident=100\
+    &max_turn_silence=1000\
+    &vad_threshold=0.4";
 
 /// Connect to AssemblyAI Universal-3 Pro Streaming endpoint.
 ///
@@ -89,6 +101,8 @@ pub async fn send_terminate_sequence(tx: &mpsc::Sender<Message>) {
     let _ = tx
         .send(Message::Text(r#"{"type":"ForceEndpoint"}"#.into()))
         .await;
+    // Give AssemblyAI a short window to emit the finalized turn before closing.
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
     // Step 2: Request session termination
     let _ = tx
         .send(Message::Text(r#"{"type":"Terminate"}"#.into()))

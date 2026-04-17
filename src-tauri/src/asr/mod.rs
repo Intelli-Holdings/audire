@@ -124,19 +124,26 @@ pub async fn run_pipeline(
                         break;
                     }
                     if let Some(p) = ev.partial_text() {
+                        let formatted = ev.is_formatted();
                         let _ = app_rx.emit(
                             "asr:partial",
-                            serde_json::json!({ "provider": prov_rx, "text": p }),
+                            serde_json::json!({
+                                "provider": prov_rx,
+                                "text": p,
+                                "formatted": formatted,
+                            }),
                         );
                     }
                     if let Some(f) = ev.final_text() {
                         let ts_ms = chrono::Utc::now().timestamp_millis();
+                        let formatted = ev.is_formatted();
                         let _ = app_rx.emit(
                             "asr:final",
                             serde_json::json!({
                                 "provider": prov_rx,
                                 "text": f,
                                 "ts_ms": ts_ms,
+                                "formatted": formatted,
                             }),
                         );
                         let _ = store_rx.insert_segment(&meeting_rx, "SYS", ts_ms, &f, None);
@@ -169,7 +176,7 @@ pub async fn run_pipeline(
             }
 
             let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(5),
                 recv_handle,
             ).await;
 

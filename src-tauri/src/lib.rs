@@ -12,6 +12,11 @@ pub mod store;
 use state::AppState;
 
 pub fn run() {
+    // Rustls 0.23+ requires an explicit crypto provider.
+    // tokio-tungstenite's "rustls-tls-webpki-roots" feature uses ring.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls crypto provider");
     tauri::Builder::default()
         .manage(AppState::new().expect("failed to init AppState"))
         .invoke_handler(tauri::generate_handler![

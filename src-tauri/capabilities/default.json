@@ -1,7 +1,7 @@
 {
   "identifier": "main-capability",
   "description": "Main window capability for Audire. Enables core IPC + event permissions. No broad filesystem/plugin access.",
-  "windows": ["main"],
+  "windows": ["main", "recorder-pill"],
   "permissions": [
     "core:default",
     "core:event:default"

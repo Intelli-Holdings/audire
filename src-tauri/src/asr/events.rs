@@ -26,6 +26,23 @@ pub enum AsrEvent {
 }
 
 impl AsrEvent {
+    /// Whether the provider considers this transcript text formatted.
+    /// AssemblyAI exposes `turn_is_formatted`; other providers default to `true`
+    /// for finals and `false` for partials.
+    pub fn is_formatted(&self) -> bool {
+        match self {
+            AsrEvent::AssemblyAi(v) => v
+                .get("turn_is_formatted")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
+            AsrEvent::DeepgramFlux(v) => {
+                let event = v.get("event").and_then(|x| x.as_str()).unwrap_or("");
+                event == "EndOfTurn"
+            }
+            AsrEvent::Mock(v) => v.get("is_final").and_then(|x| x.as_bool()).unwrap_or(false),
+        }
+    }
+
     /// Extract partial (non-final) transcript text.
     /// Returns Some for interim results; None for finals or non-transcript messages.
     pub fn partial_text(&self) -> Option<String> {

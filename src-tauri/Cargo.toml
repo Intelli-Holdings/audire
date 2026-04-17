@@ -27,6 +27,10 @@ opt-level = "z"
 panic = "abort"
 strip = true
 
+[profile.dev]
+debug = 0
+incremental = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -44,6 +48,7 @@ directories = "5"
 # Async + websockets (Rustls for portability, no OpenSSL at runtime)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
 http = "1"
 
@@ -55,7 +60,6 @@ ringbuf = "0.4"
 rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 # KeyVault (OS credential stores: Keychain / Credential Manager / Secret Service)
-keyring = "3"
 
 # Optional LLM gateways (default OFF — enable via --features llm_openai,llm_anthropic)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
@@ -63,6 +67,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Windows system audio capture (WASAPI loopback)
 [target.'cfg(windows)'.dependencies]
 wasapi = { version = "0.16", optional = true }
+keyring = { version = "3", features = ["windows-native"] }
 
 [features]
 # Default features: enable ASR providers + platform system audio backend.

@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWindow, LogicalPosition, primaryMonitor } from '@tauri-apps/api/window';
 import './style.css';
 
 // ---- State ----
@@ -21,7 +23,14 @@ let captureStartedAt = null;
 let captureTimerHandle = null;
 let captureRuntimeStatusText = 'Listening';
 let capturePreviewText = 'Waiting for speech...';
-let selectedCaptureProvider = 'deepgram';
+let partialTranscript = null;
+let captureValidated = false;
+let selectedCaptureProvider = 'assemblyai';
+const appWindow = getCurrentWindow();
+const currentWindowLabel = appWindow.label;
+const CAPTURE_UI_STATE_KEY = 'audire.capture.ui';
+const SIDEBAR_COLLAPSED_KEY = 'audire.sidebar.collapsed';
+let recorderPillMonitorHandle = null;
 
 // ---- Elements ----
 const content = document.getElementById('content');
@@ -33,29 +42,47 @@ const captureRuntimeStatus = document.getElementById('captureRuntimeStatus');
 const capturePreview = document.getElementById('capturePreview');
 const captureTimer = document.getElementById('captureTimer');
 const captureStopBtn = document.getElementById('captureStopBtn');
+const sidebar = document.getElementById('sidebar');
+const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+const sidebarFolders = document.getElementById('sidebarFolders');
+const sidebarAddFolderBtn = document.getElementById('sidebarAddFolderBtn');
+const folderModalOverlay = document.getElementById('folderModalOverlay');
+const folderModalTitle = document.getElementById('folderModalTitle');
+const folderModalDescription = document.getElementById('folderModalDescription');
+const folderModalCreateBtn = document.getElementById('folderModalCreateBtn');
+const folderModalCloseBtn = document.getElementById('folderModalCloseBtn');
+const folderModalCancelBtn = document.getElementById('folderModalCancelBtn');
 
 // ---- Event listeners from Tauri ----
 async function registerTauriListeners() {
   await listen('asr:partial', (event) => {
     partialText = event.payload?.text || '';
+    partialTranscript = partialText ? {
+      text: partialText,
+      formatted: Boolean(event.payload?.formatted),
+    } : null;
     if (partialText) {
       capturePreviewText = partialText;
       updateCapturePillText();
     }
     updateTranscript();
+    persistCaptureUiState();
   });
 
   await listen('asr:final', (event) => {
     const t = event.payload?.text || '';
     const ts = event.payload?.ts_ms || Date.now();
     const prov = event.payload?.provider || '';
+    const formatted = Boolean(event.payload?.formatted);
     if (t) {
-      finals.push({ text: t, ts_ms: ts, provider: prov });
+      finals.push({ text: t, ts_ms: ts, provider: prov, formatted });
       partialText = '';
+      partialTranscript = null;
       capturePreviewText = t;
       updateCapturePillText();
       updateTranscript();
     }
+    persistCaptureUiState();
   });
 
   await listen('asr:status', (event) => {
@@ -77,14 +104,17 @@ async function registerTauriListeners() {
     if (eventMeetingId && meetingId && eventMeetingId !== meetingId) return;
 
     if (nextState === 'running') {
+      captureValidated = true;
       captureRuntimeStatusText = 'Live';
       updateCapturePillText();
+      persistCaptureUiState();
       return;
     }
 
     if (nextState === 'stopped') {
       isCapturing = false;
       hideCapturePill();
+      persistCaptureUiState();
       if (currentView === 'meeting') {
         renderMeeting();
       }
@@ -97,6 +127,7 @@ async function registerTauriListeners() {
       if (message) {
         showToast(message, 'error');
       }
+      persistCaptureUiState();
       if (currentView === 'meeting') {
         renderMeeting();
       }
@@ -113,10 +144,16 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     openSearch();
   }
-  if (e.key === 'Escape') closeSearch();
+  if (e.key === 'Escape') {
+    closeSearch();
+    closeFolderModal();
+  }
 });
 searchModal.addEventListener('click', (e) => {
   if (e.target === searchModal) closeSearch();
+});
+folderModalOverlay?.addEventListener('click', (e) => {
+  if (e.target === folderModalOverlay) closeFolderModal();
 });
 
 function openSearch() {
@@ -145,6 +182,7 @@ window.addEventListener('hashchange', () => {
 function navigate(view, pushHash = true) {
   currentView = view;
   if (pushHash) location.hash = view;
+  restoreFloatingCaptureBar();
 
   // Update sidebar active state
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -156,6 +194,12 @@ function navigate(view, pushHash = true) {
 
 // ---- New click handlers ----
 document.getElementById('userProfile')?.addEventListener('click', () => navigate('settings'));
+sidebarCollapseBtn?.addEventListener('click', toggleSidebarCollapsed);
+sidebarAddFolderBtn?.addEventListener('click', openFolderModal);
+folderModalCloseBtn?.addEventListener('click', closeFolderModal);
+folderModalCancelBtn?.addEventListener('click', closeFolderModal);
+folderModalTitle?.addEventListener('input', updateFolderModalState);
+folderModalCreateBtn?.addEventListener('click', createFolderFromModal);
 document.getElementById('newNoteBtn')?.addEventListener('click', async () => {
   try {
     const note = await invoke('create_standalone_note', { title: 'Untitled' });
@@ -196,6 +240,105 @@ function updateCapturePillText() {
   if (capturePreview) {
     capturePreview.textContent = capturePreviewText || 'Waiting for speech...';
   }
+  syncRecorderPillUi();
+  persistCaptureUiState();
+}
+
+function restoreFloatingCaptureBar() {
+  if (!captureBar) return;
+  document.body.appendChild(captureBar);
+  captureBar.classList.remove('inline');
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (!sidebar) return;
+  sidebar.classList.toggle('collapsed', collapsed);
+  document.documentElement.style.setProperty(
+    '--sidebar-width',
+    collapsed ? '72px' : '260px',
+  );
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {}
+}
+
+function toggleSidebarCollapsed() {
+  setSidebarCollapsed(!sidebar?.classList.contains('collapsed'));
+}
+
+function hydrateSidebarState() {
+  try {
+    setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+  } catch {
+    setSidebarCollapsed(false);
+  }
+}
+
+function openFolderModal() {
+  folderModalOverlay?.classList.remove('hidden');
+  folderModalTitle.value = '';
+  folderModalDescription.value = '';
+  updateFolderModalState();
+  folderModalTitle?.focus();
+}
+
+function closeFolderModal() {
+  folderModalOverlay?.classList.add('hidden');
+}
+
+function updateFolderModalState() {
+  if (!folderModalCreateBtn || !folderModalTitle) return;
+  folderModalCreateBtn.disabled = !folderModalTitle.value.trim();
+}
+
+async function createFolderFromModal() {
+  const name = folderModalTitle?.value.trim();
+  if (!name) return;
+  try {
+    await invoke('create_folder', { name, kind: 'project', color: null });
+    closeFolderModal();
+    await loadSidebarFolders();
+    if (currentView === 'notes') {
+      renderNotes();
+    }
+  } catch (e) {
+    console.error('Create folder error:', e);
+    showToast(`Failed to create folder: ${e}`, 'error');
+  }
+}
+
+async function loadSidebarFolders() {
+  if (!sidebarFolders) return;
+  try {
+    foldersCache = await invoke('list_folders');
+  } catch (e) {
+    console.error('Sidebar folders load error:', e);
+    return;
+  }
+
+  sidebarFolders.innerHTML = foldersCache.map(folder => `
+    <button class="sidebar-folder-item" type="button" data-sidebar-folder-id="${folder.id}">
+      <svg class="sidebar-folder-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>
+      <div class="sidebar-folder-meta">
+        <div class="folder-name">${escapeHtml(folder.name)}</div>
+      </div>
+    </button>
+  `).join('');
+
+  document.querySelectorAll('[data-sidebar-folder-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      currentFolderId = parseInt(el.dataset.sidebarFolderId);
+      navigate('notes');
+    });
+  });
+}
+
+function dockCaptureBarInMeeting() {
+  if (!captureBar) return;
+  const dock = document.getElementById('captureBarDock');
+  if (!dock) return;
+  dock.appendChild(captureBar);
+  captureBar.classList.add('inline');
 }
 
 function showCapturePill(provider) {
@@ -203,11 +346,12 @@ function showCapturePill(provider) {
   captureRuntimeStatusText = 'Connecting';
   capturePreviewText = 'Waiting for speech...';
   captureBar.classList.remove('hidden');
-  captureStatus.textContent = `Recording ${provider}`;
+  captureStatus.textContent = 'Recording';
   updateCapturePillText();
   updateCaptureTimer();
   if (captureTimerHandle) clearInterval(captureTimerHandle);
   captureTimerHandle = window.setInterval(updateCaptureTimer, 1000);
+  void syncRecorderPillWindow();
 }
 
 function hideCapturePill() {
@@ -222,6 +366,140 @@ function hideCapturePill() {
   updateCapturePillText();
   captureBar.classList.add('hidden');
   captureStatus.textContent = 'Idle';
+  void syncRecorderPillWindow();
+}
+
+function persistCaptureUiState() {
+  try {
+    window.localStorage.setItem(CAPTURE_UI_STATE_KEY, JSON.stringify({
+      meetingId,
+      isCapturing,
+      captureStartedAt,
+      captureRuntimeStatusText,
+      capturePreviewText,
+      finals,
+      partialText,
+      partialTranscript,
+    }));
+  } catch {}
+}
+
+function hydrateCaptureUiState() {
+  try {
+    const raw = window.localStorage.getItem(CAPTURE_UI_STATE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    meetingId = state.meetingId ?? meetingId;
+    isCapturing = Boolean(state.isCapturing);
+    captureStartedAt = state.captureStartedAt ?? captureStartedAt;
+    captureRuntimeStatusText = state.captureRuntimeStatusText || captureRuntimeStatusText;
+    capturePreviewText = state.capturePreviewText || capturePreviewText;
+    partialText = state.partialText || '';
+    partialTranscript = partialText ? {
+      text: partialText,
+      formatted: Boolean(state.partialTranscript?.formatted),
+    } : null;
+    finals.length = 0;
+    for (const row of state.finals || []) finals.push(row);
+
+    if (isCapturing && captureBar) {
+      captureBar.classList.remove('hidden');
+      // Validate the capture is still running: if no lifecycle "running" event
+      // arrives within 2s, assume it's stale and reset.
+      setTimeout(() => {
+        if (isCapturing && !captureValidated) {
+          isCapturing = false;
+          hideCapturePill();
+          persistCaptureUiState();
+          // Re-render current view to clear stale "LIVE" indicators
+          const hash = location.hash.slice(1) || 'home';
+          navigate(hash, false);
+        }
+      }, 2000);
+    }
+  } catch {}
+}
+
+function syncRecorderPillUi() {
+  const statusEl = document.getElementById('recorderPillStatus');
+  const previewEl = document.getElementById('recorderPillPreview');
+  const timerEl = document.getElementById('recorderPillTimer');
+  if (statusEl) statusEl.textContent = captureRuntimeStatusText || 'Listening';
+  if (previewEl) previewEl.textContent = capturePreviewText || 'Waiting for speech...';
+  if (timerEl) {
+    timerEl.textContent = captureStartedAt
+      ? formatCaptureDuration(Date.now() - captureStartedAt)
+      : '00:00';
+  }
+  document.body.classList.toggle('pill-recording', isCapturing);
+}
+
+async function ensureRecorderPillWindow() {
+  let pill = await WebviewWindow.getByLabel('recorder-pill');
+  if (pill) return pill;
+
+  pill = new WebviewWindow('recorder-pill', {
+    url: '/#recorder-pill',
+    width: 92,
+    height: 232,
+    resizable: false,
+    decorations: false,
+    transparent: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focus: false,
+    visible: false,
+  });
+
+  await new Promise((resolve, reject) => {
+    const cleanup = [];
+    pill.once('tauri://created', () => {
+      cleanup.forEach(fn => fn());
+      resolve();
+    }).then(fn => cleanup.push(fn));
+    pill.once('tauri://error', (event) => {
+      cleanup.forEach(fn => fn());
+      reject(event.payload);
+    }).then(fn => cleanup.push(fn));
+  });
+
+  return pill;
+}
+
+async function positionRecorderPillWindow(pill) {
+  const monitor = await primaryMonitor();
+  const workArea = monitor?.workArea;
+  if (!workArea) return;
+  const x = workArea.position.x + workArea.size.width - 112;
+  const y = workArea.position.y + Math.round((workArea.size.height - 232) / 2);
+  await pill.setPosition(new LogicalPosition(x, y));
+}
+
+async function syncRecorderPillWindow() {
+  if (currentWindowLabel !== 'main') return;
+  const pill = await WebviewWindow.getByLabel('recorder-pill');
+
+  if (!isCapturing) {
+    if (pill) await pill.hide().catch(() => {});
+    return;
+  }
+
+  const minimized = await appWindow.isMinimized().catch(() => false);
+  if (!minimized) {
+    if (pill) await pill.hide().catch(() => {});
+    return;
+  }
+
+  const nextPill = pill || await ensureRecorderPillWindow();
+  await positionRecorderPillWindow(nextPill).catch(() => {});
+  await nextPill.show().catch(() => {});
+}
+
+function startRecorderPillMonitor() {
+  if (currentWindowLabel !== 'main' || recorderPillMonitorHandle) return;
+  recorderPillMonitorHandle = window.setInterval(() => {
+    void syncRecorderPillWindow();
+  }, 900);
 }
 
 function showToast(message, kind = 'info') {
@@ -237,7 +515,7 @@ function showToast(message, kind = 'info') {
 }
 
 async function chooseDefaultProvider() {
-  const providers = ['deepgram', 'assemblyai'];
+  const providers = ['assemblyai', 'deepgram'];
   for (const provider of providers) {
     try {
       if (await invoke('has_api_key', { provider })) {
@@ -247,13 +525,14 @@ async function chooseDefaultProvider() {
       continue;
     }
   }
-  return 'mock';
+  return 'assemblyai';
 }
 
 async function startCapture(provider, opts = {}) {
   if (isCapturing) return;
   finals.length = 0;
   partialText = '';
+  partialTranscript = null;
   capturePreviewText = 'Waiting for speech...';
 
   try {
@@ -265,8 +544,10 @@ async function startCapture(provider, opts = {}) {
     });
     meetingId = resp.meeting_id;
     isCapturing = true;
+    captureValidated = true;
     showCapturePill(provider);
-    showToast(`Recording started with ${provider}`, 'success');
+    persistCaptureUiState();
+    showToast('Recording started', 'success');
     navigate('meeting');
   } catch (e) {
     console.error(e);
@@ -284,6 +565,7 @@ async function stopCapture() {
   } finally {
     isCapturing = false;
     hideCapturePill();
+    persistCaptureUiState();
   }
 }
 
@@ -300,6 +582,7 @@ async function exportMeeting() {
 
 // ---- Views ----
 function renderView(view) {
+  document.body.classList.toggle('recorder-pill-window', view === 'recorder-pill');
   switch (view) {
     case 'home': renderHome(); break;
     case 'meeting': renderMeeting(); break;
@@ -311,6 +594,7 @@ function renderView(view) {
     case 'recipes': renderRecipes(); break;
     case 'settings': renderSettings(); break;
     case 'note-editor': renderNoteEditor(); break;
+    case 'recorder-pill': renderRecorderPill(); break;
     default: renderHome();
   }
 }
@@ -319,11 +603,6 @@ async function renderHome() {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const dayName = today.toLocaleDateString('en-US', { weekday: 'short' });
-  const providerCards = [
-    { id: 'deepgram', label: 'Deepgram', desc: 'Fast live transcription' },
-    { id: 'assemblyai', label: 'AssemblyAI', desc: 'Alternative live ASR' },
-    { id: 'mock', label: 'Mock', desc: 'Offline UI testing' },
-  ];
 
   // Fetch recent meetings
   let meetings = [];
@@ -337,27 +616,24 @@ async function renderHome() {
     selectedCaptureProvider = await chooseDefaultProvider();
   }
 
-  for (const provider of providerCards) {
-    if (provider.id === 'mock') {
-      keyStatusCache.mock = true;
-      continue;
-    }
+  for (const provider of ['deepgram', 'assemblyai']) {
     try {
-      keyStatusCache[provider.id] = await invoke('has_api_key', { provider: provider.id });
+      keyStatusCache[provider] = await invoke('has_api_key', { provider });
     } catch {
-      keyStatusCache[provider.id] = false;
+      keyStatusCache[provider] = false;
     }
   }
 
-  if (!keyStatusCache[selectedCaptureProvider] && selectedCaptureProvider !== 'mock') {
+  if (!keyStatusCache[selectedCaptureProvider]) {
     selectedCaptureProvider = await chooseDefaultProvider();
   }
+  const hasConfiguredCaptureProvider = Boolean(keyStatusCache.deepgram || keyStatusCache.assemblyai);
 
   const recentHtml = meetings.length > 0
     ? meetings.slice(0, 5).map(m => {
         const d = new Date(m.started_at * 1000);
         const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        const title = m.title || `${m.provider} session`;
+        const title = m.title || 'Meeting notes';
         return `
           <div class="meeting-item" data-mid="${escapeHtml(m.id)}">
             <div>
@@ -380,44 +656,27 @@ async function renderHome() {
         <div class="capture-hero">
           <div>
             <h3>Start a meeting</h3>
-            <p class="capture-subtitle">Local-first capture with structured notes, live transcript, and evidence-linked memory.</p>
+            <p class="capture-subtitle">Clean local meeting capture with transcripts, notes, and structured summaries after the conversation.</p>
           </div>
           <div class="capture-hero-actions">
-            <button class="btn btn-primary" id="startBtn" ${isCapturing ? 'disabled' : ''}>
+            <button class="btn btn-primary" id="startBtn" ${(isCapturing || !hasConfiguredCaptureProvider) ? 'disabled' : ''}>
               ${isCapturing ? 'Recording...' : 'Start now'}
             </button>
             ${isCapturing ? `<button class="btn btn-ghost" id="viewMeetingBtn">Open live view</button>` : ''}
           </div>
         </div>
-        <div class="capture-provider-grid">
-          ${providerCards.map(provider => `
-            <button
-              class="capture-provider-card ${provider.id === selectedCaptureProvider ? 'active' : ''} ${!keyStatusCache[provider.id] ? 'inactive' : ''}"
-              data-provider-card="${provider.id}"
-              type="button"
-            >
-              <span class="capture-provider-title">
-                ${escapeHtml(provider.label)}
-                ${keyStatusCache[provider.id] ? '<span class="capture-provider-dot ready"></span>' : '<span class="capture-provider-dot"></span>'}
-              </span>
-              <span class="capture-provider-desc">${escapeHtml(provider.desc)}</span>
-            </button>
-          `).join('')}
-        </div>
-        <div class="capture-options compact">
+        <div class="capture-options compact clean-capture-options">
           <label class="toggle-label toggle-chip">
             <input type="checkbox" id="includeMicToggle" checked />
             <span>Mic on</span>
           </label>
-          <div class="capture-mode-pill">System audio loopback</div>
-          <a class="capture-inline-link" href="#settings">${selectedCaptureProvider !== 'mock' && !keyStatusCache[selectedCaptureProvider] ? 'Add API key to use this provider' : 'Manage keys'}</a>
+          <div class="capture-mode-pill">System audio</div>
+          <a class="capture-inline-link" href="#settings">Transcription settings</a>
         </div>
-        <div class="status-line mt-16 ${selectedCaptureProvider !== 'mock' && !keyStatusCache[selectedCaptureProvider] ? 'error' : 'success'}">
-          ${selectedCaptureProvider === 'mock'
-            ? 'Mock provider selected for local UI testing.'
-            : keyStatusCache[selectedCaptureProvider]
-              ? `${providerCards.find(p => p.id === selectedCaptureProvider)?.label || 'Provider'} is configured in your OS keyring.`
-              : `${providerCards.find(p => p.id === selectedCaptureProvider)?.label || 'Provider'} has no saved key yet.`}
+        <div class="status-line mt-16 ${hasConfiguredCaptureProvider ? 'success' : 'error'}">
+          ${hasConfiguredCaptureProvider
+            ? 'Audire is ready to transcribe when you start recording.'
+            : 'Add a transcription API key in Settings before starting your first recording.'}
         </div>
       </div>
 
@@ -458,12 +717,6 @@ async function renderHome() {
     startCapture(selectedCaptureProvider, { includeMic });
   });
   document.getElementById('viewMeetingBtn')?.addEventListener('click', () => navigate('meeting'));
-  document.querySelectorAll('[data-provider-card]').forEach(el => {
-    el.addEventListener('click', () => {
-      selectedCaptureProvider = el.dataset.providerCard;
-      renderHome();
-    });
-  });
 
   // Click on recent meeting items
   document.querySelectorAll('[data-mid]').forEach(el => {
@@ -475,21 +728,6 @@ async function renderHome() {
 }
 
 async function renderMeeting() {
-  if (meetingTemplates.length === 0) {
-    try {
-      meetingTemplates = await invoke('list_meeting_templates');
-    } catch (e) {
-      console.error('Template load error:', e);
-    }
-  }
-  if (foldersCache.length === 0) {
-    try {
-      foldersCache = await invoke('list_folders');
-    } catch (e) {
-      console.error('Folder load error:', e);
-    }
-  }
-
   meetingSegments = [];
   meetingUserNotes = [];
   currentStructuredNote = null;
@@ -507,179 +745,34 @@ async function renderMeeting() {
     }
   }
 
-  const templateKind = currentMeeting?.template_kind || 'generic';
   const title = currentMeeting?.title || (meetingId ? 'Meeting Notes' : 'Live Session');
-  const folderOptions = ['<option value="">No folder</option>'].concat(
-    foldersCache.map(folder => `
-      <option value="${folder.id}" ${currentMeeting?.folder_id === folder.id ? 'selected' : ''}>
-        ${escapeHtml(folder.name)}
-      </option>
-    `),
-  ).join('');
-  const templateOptions = meetingTemplates.map(t => `
-    <option value="${escapeHtml(t.kind)}" ${t.kind === templateKind ? 'selected' : ''}>
-      ${escapeHtml(t.label)}
-    </option>
-  `).join('');
-
-  const userNotesHtml = meetingUserNotes.length > 0
-    ? meetingUserNotes.map(n => `
-      <div class="user-note-row">
-        <div class="user-note-meta">${formatDateTime(n.ts_ms)}</div>
-        <div class="user-note-text">${escapeHtml(n.text)}</div>
-      </div>
-    `).join('')
-    : '<p class="text-muted">No saved human notes yet.</p>';
 
   content.innerHTML = `
-    <div class="meeting-detail" style="padding-bottom: 320px;">
+    <div class="meeting-detail">
       <div class="meeting-detail-header">
         <h1>${escapeHtml(title)}</h1>
-        <div class="meeting-badges">
-          <span class="badge">${escapeHtml((templateKind || 'generic').replaceAll('_', ' '))}</span>
-          ${isCapturing ? '<span class="badge recording-badge">Recording</span>' : ''}
-        </div>
-        <div class="meeting-actions">
-          <button class="btn btn-ghost" id="exportBtn">Export MD</button>
-        </div>
+        ${isCapturing ? '<span class="meeting-live-indicator">Live</span>' : ''}
       </div>
 
-      <div class="settings-section meeting-template-bar">
-        <div>
-          <h2>Meeting template</h2>
-          <p class="text-muted" style="font-size:13px;">Templates steer the structure and retrieval emphasis.</p>
-        </div>
-        <div class="meeting-template-actions">
-          <div class="select-wrap">
-            <select id="meetingFolderSelect">${folderOptions}</select>
-          </div>
-          <div class="select-wrap">
-            <select id="meetingTemplateSelect">${templateOptions}</select>
-          </div>
-          <button class="btn-primary-sm" id="generateStructuredBtn">Generate structured notes</button>
-        </div>
-      </div>
+      <div id="captureBarDock" class="capture-bar-dock ${isCapturing ? '' : 'hidden'}"></div>
 
-      <div class="meeting-grid">
-        <div class="settings-section">
-          <h2>Human notes</h2>
-          <textarea class="chat-textarea" id="meetingNoteInput" placeholder="Capture your own outline, decisions, actions, risks, or questions..." rows="4"></textarea>
-          <div style="display:flex; justify-content:flex-end; margin-top:10px;">
-            <button class="btn-primary-sm" id="saveMeetingNoteBtn">Save note</button>
-          </div>
-          <div class="user-notes-list mt-16">${userNotesHtml}</div>
-        </div>
-
-        <div class="settings-section">
-          <div class="structured-notes-header">
-            <div>
-              <h2>Structured notes</h2>
-              <p class="text-muted" style="font-size:13px;">Editable notes grounded in transcript evidence.</p>
-            </div>
-            ${currentStructuredNote ? `<span class="key-status configured">Ready</span>` : `<span class="key-status missing">Not generated</span>`}
-          </div>
-          <div id="structuredNotesRoot">
-            ${renderStructuredNotes(currentStructuredNote)}
-          </div>
-        </div>
-      </div>
-
-      ${isCapturing ? `
-      <div class="transcript-panel" id="transcriptPanel">
-        <div class="transcript-header" id="transcriptToggle">
-          <h3>Live Transcript</h3>
-          <span style="font-size: 12px; color: var(--text-muted);">Click to toggle</span>
-        </div>
+      <div class="transcript-live-panel" id="transcriptPanel">
         <div class="transcript-body" id="transcriptBody">
-          <div id="transcriptContent"></div>
+          <div class="transcript-feed" id="transcriptContent"></div>
         </div>
-      </div>
-      ` : `
-      <div class="transcript-panel" id="transcriptPanel">
-        <div class="transcript-header">
-          <h3>Transcript (${meetingSegments.length} segments)</h3>
-        </div>
-        <div class="transcript-body" id="transcriptBody">
-          <div id="transcriptContent"></div>
-        </div>
-      </div>
-      `}
-
-      <div class="ask-bar" id="askBar">
-        <input type="text" placeholder="Ask anything" id="askInput" />
-        <button class="recipe-chip" id="runSummaryBtn">
-          <span class="chip-icon">/</span>
-          Refresh notes
-        </button>
-        <button class="recipe-chip" onclick="window.location.hash='recipes'">
-          <span class="chip-icon">/</span>
-          See all
-        </button>
+        ${isCapturing ? `
+        <aside class="transcript-legend-inline">
+          <span><em class="legend-partial">Italic</em> = unfinalized</span>
+          <span class="legend-muted-label">Gray = finalized</span>
+          <span class="legend-final-label">Black = formatted</span>
+        </aside>
+        ` : ''}
       </div>
     </div>
   `;
 
-  document.getElementById('transcriptToggle')?.addEventListener('click', () => {
-    document.getElementById('transcriptPanel')?.classList.toggle('collapsed');
-  });
-
-  document.getElementById('exportBtn')?.addEventListener('click', exportMeeting);
-
-  document.getElementById('meetingTemplateSelect')?.addEventListener('change', async (e) => {
-    if (!meetingId) return;
-    const nextTemplate = e.target.value;
-    try {
-      await invoke('set_meeting_template', { meetingId, templateKind: nextTemplate });
-      if (currentMeeting) currentMeeting.template_kind = nextTemplate;
-    } catch (err) {
-      console.error('Template update error:', err);
-    }
-  });
-
-  document.getElementById('meetingFolderSelect')?.addEventListener('change', async (e) => {
-    if (!meetingId) return;
-    const nextFolderId = e.target.value ? parseInt(e.target.value) : null;
-    try {
-      await invoke('assign_meeting_folder', { meetingId, folderId: nextFolderId });
-      if (currentMeeting) currentMeeting.folder_id = nextFolderId;
-    } catch (err) {
-      console.error('Meeting folder update error:', err);
-    }
-  });
-
-  document.getElementById('saveMeetingNoteBtn')?.addEventListener('click', async () => {
-    if (!meetingId) return;
-    const input = document.getElementById('meetingNoteInput');
-    const text = input?.value.trim();
-    if (!text) return;
-    try {
-      await invoke('append_note', { meetingId, text });
-      input.value = '';
-      renderMeeting();
-    } catch (e) {
-      console.error('Note save error:', e);
-    }
-  });
-
-  document.getElementById('generateStructuredBtn')?.addEventListener('click', async () => {
-    if (!meetingId) return;
-    try {
-      currentStructuredNote = await invoke('generate_structured_meeting_notes', {
-        meetingId,
-        templateKind: document.getElementById('meetingTemplateSelect')?.value || templateKind,
-      });
-      renderMeeting();
-    } catch (e) {
-      console.error('Structured note generation error:', e);
-    }
-  });
-
-  document.getElementById('runSummaryBtn')?.addEventListener('click', async () => {
-    document.getElementById('generateStructuredBtn')?.click();
-  });
-
-  bindStructuredNoteEditors();
   updateTranscript();
+  dockCaptureBarInMeeting();
 }
 
 function renderStructuredNotes(note) {
@@ -765,51 +858,75 @@ async function renderChat() {
     }
   }
 
+  let recentMeetings = [];
+  try {
+    recentMeetings = await invoke('list_meetings');
+  } catch {}
+
   content.innerHTML = `
-    <div class="view">
-      <div class="view-header">
-        <h1>Ask anything</h1>
-      </div>
+    <div class="chat-view">
+      <h1 class="chat-greeting">Hi, ask anything</h1>
 
-      <div class="chat-input-area">
-        <div class="chat-input-header">
-          <span class="scope-tag active" data-scope="meeting">This meeting</span>
-          <span class="scope-tag" data-scope="folder">Folder</span>
-          <span class="scope-tag" data-scope="all">All meetings</span>
-        </div>
-        <div class="inline-form" style="margin-top:0; padding-top:0;">
-          <select id="askFolderSelect" style="min-width:200px;">
-            <option value="">All folders</option>
-            ${foldersCache.map(folder => `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`).join('')}
-          </select>
-        </div>
-        <textarea class="chat-textarea" id="chatTextarea" placeholder="What decisions were made?" rows="2"></textarea>
-        <div class="chat-input-footer">
-          <div class="model-selector">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
-            Grounded local retrieval
+      <div class="chat-composer">
+        <div class="chat-composer-top">
+          <div class="chat-scope-row">
+            <span class="scope-pill active" data-scope="meeting">My notes</span>
+            <span class="scope-pill" data-scope="all">All meetings</span>
+            <select class="scope-folder-select" id="askFolderSelect">
+              <option value="">All folders</option>
+              ${foldersCache.map(folder => `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`).join('')}
+            </select>
           </div>
-          <button class="btn-primary-sm" id="chatSendBtn">Send</button>
+          <textarea class="chat-textarea" id="chatTextarea" placeholder="Summarize my meetings this week" rows="1"></textarea>
+        </div>
+        <div class="chat-composer-bottom">
+          <div class="chat-composer-meta">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+            <span class="chat-model-label">Sonnet 4.6</span>
+          </div>
+          <button class="chat-send-icon" id="chatSendBtn" type="button" aria-label="Send">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
         </div>
       </div>
 
-      <div id="chatResponse" style="margin-bottom: 20px;"></div>
+      <div id="chatResponse" class="chat-response"></div>
 
-      <h3 style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Recipes</h3>
-      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-        <button class="recipe-chip"><span class="chip-icon">/</span> List recent todos</button>
-        <button class="recipe-chip"><span class="chip-icon">/</span> Write weekly recap</button>
-        <button class="recipe-chip"><span class="chip-icon">/</span> Summarize meeting</button>
-        <button class="recipe-chip" onclick="window.location.hash='recipes'"><span class="chip-icon">#</span> See all</button>
+      ${recentMeetings.length > 0 ? `
+      <div class="chat-section">
+        <h3 class="chat-section-label">Recents</h3>
+        <div class="chat-recents">
+          ${recentMeetings.slice(0, 5).map(m => `
+            <a class="chat-recent-item" href="#" data-goto-meeting="${m.id}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span class="chat-recent-title">${escapeHtml(m.title || 'Untitled meeting')}</span>
+              <span class="chat-recent-ago">${formatRelativeTime(m.started_at)}</span>
+            </a>
+          `).join('')}
+        </div>
+      </div>
+      ` : ''}
+
+      <div class="chat-section">
+        <h3 class="chat-section-label">Recipes</h3>
+        <div class="chat-recipes">
+          <button class="recipe-chip"><span class="chip-icon">/</span> List recent todos</button>
+          <button class="recipe-chip"><span class="chip-icon">/</span> Write weekly recap</button>
+          <button class="recipe-chip"><span class="chip-icon">/</span> Summarize meeting</button>
+          <button class="recipe-chip" onclick="window.location.hash='recipes'">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            See all
+          </button>
+        </div>
       </div>
     </div>
   `;
 
-  // Scope tag toggling
-  document.querySelectorAll('.scope-tag[data-scope]').forEach(tag => {
-    tag.addEventListener('click', () => {
-      document.querySelectorAll('.scope-tag[data-scope]').forEach(t => t.classList.remove('active'));
-      tag.classList.add('active');
+  // Scope pill toggling
+  document.querySelectorAll('.scope-pill[data-scope]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.scope-pill[data-scope]').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
     });
   });
 
@@ -820,7 +937,7 @@ async function renderChat() {
   async function sendChat() {
     const text = textarea.value.trim();
     if (!text) return;
-    const scope = document.querySelector('.scope-tag.active')?.dataset.scope || 'all';
+    const scope = document.querySelector('.scope-pill.active')?.dataset.scope || 'all';
     const folderId = document.getElementById('askFolderSelect')?.value
       ? parseInt(document.getElementById('askFolderSelect').value)
       : null;
@@ -860,6 +977,15 @@ async function renderChat() {
       e.preventDefault();
       sendChat();
     }
+  });
+
+  // Recent meeting links
+  document.querySelectorAll('[data-goto-meeting]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      meetingId = el.dataset.gotoMeeting;
+      navigate('meeting');
+    });
   });
 }
 
@@ -923,19 +1049,6 @@ async function renderNotes() {
     }
     html += '</div>';
   }
-
-  html += `
-    <div class="inline-form" id="addFolderForm">
-      <input type="text" id="folderName" placeholder="Folder name" style="flex:1;" />
-      <select id="folderKind">
-        <option value="project">Project</option>
-        <option value="client">Client</option>
-        <option value="team">Team</option>
-        <option value="topic">Topic</option>
-      </select>
-      <button class="btn-primary-sm" id="addFolderBtn">Create folder</button>
-    </div>
-  `;
 
   if (selectedFolder) {
     html += `
@@ -1038,24 +1151,13 @@ async function renderNotes() {
     });
   });
 
-  document.getElementById('addFolderBtn')?.addEventListener('click', async () => {
-    const name = document.getElementById('folderName')?.value.trim();
-    const kind = document.getElementById('folderKind')?.value || 'project';
-    if (!name) return;
-    try {
-      await invoke('create_folder', { name, kind, color: null });
-      renderNotes();
-    } catch (e) {
-      console.error('Create folder error:', e);
-    }
-  });
 }
 
 async function renderPeople() {
   content.innerHTML = `
     <div class="view">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-        <h1 style="font-size: 28px; font-weight: 700;">People</h1>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+        <h1 style="font-size:28px; font-weight:700;">People</h1>
       </div>
       <p class="text-muted">Loading...</p>
     </div>
@@ -1068,58 +1170,67 @@ async function renderPeople() {
     console.error('list_all_participants error:', e);
   }
 
-  let tbody = '';
-  for (const p of people) {
-    const initial = p.name.charAt(0).toUpperCase();
-    const colors = ['green', 'blue', 'purple'];
-    const color = colors[p.id % colors.length];
-    const lastMeeting = p.last_meeting_at
-      ? new Date(p.last_meeting_at * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : '-';
-    tbody += `
-      <tr>
-        <td>
-          <div class="person-cell">
-            <div class="person-avatar ${color}">${escapeHtml(initial)}</div>
-            <div>
-              <div class="person-name">${escapeHtml(p.name)}</div>
-              <div class="person-email">${escapeHtml(p.email || '')}</div>
-            </div>
+  const sortedPeople = [...people].sort((a, b) => (b.last_meeting_at || 0) - (a.last_meeting_at || 0));
+  const rowsHtml = sortedPeople.map((person, index) => {
+    const email = person.email || person.org_name || 'No email';
+    const lastNote = formatCompanyLastNote(person.last_meeting_at);
+    return `
+      <div class="company-row people-row" data-person-id="${person.id}">
+        <div class="company-main-cell">
+          <div class="person-avatar people-avatar tone-${(index % 4) + 1}">${renderPersonAvatar(person)}</div>
+          <div class="company-copy">
+            <div class="company-name">${escapeHtml(person.name)}</div>
+            <div class="company-domain">${escapeHtml(email)}</div>
           </div>
-        </td>
-        <td class="text-muted">${escapeHtml(p.org_name || '-')}</td>
-        <td class="text-muted">${lastMeeting}</td>
-        <td>${p.meeting_count}</td>
-      </tr>`;
-  }
+        </div>
+        <div class="company-last-note">${escapeHtml(lastNote)}</div>
+        <div class="company-notes-count">${person.meeting_count}</div>
+      </div>
+    `;
+  }).join('');
 
-  if (people.length === 0) {
-    tbody = `<tr><td colspan="4" class="text-muted" style="text-align:center;padding:24px;">No people added yet.</td></tr>`;
-  }
+  const tableHtml = sortedPeople.length > 0
+    ? `
+      <div class="companies-table-shell">
+        <div class="companies-table-head">
+          <div>Person</div>
+          <div>Last note</div>
+          <div>Notes</div>
+        </div>
+        <div class="companies-table-body">
+          ${rowsHtml}
+        </div>
+      </div>
+    `
+    : '';
 
   content.innerHTML = `
-    <div class="view">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-        <h1 style="font-size: 28px; font-weight: 700;">People</h1>
+    <div class="view companies-view">
+      <div class="companies-page-header">
+        <h1 class="companies-title">People</h1>
+        <div class="companies-header-actions">
+          <button class="companies-icon-search" type="button" aria-label="Search people">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </button>
+          <div class="companies-filter-bar">
+            <button class="companies-filter-pill active" type="button">Everyone</button>
+            <button class="companies-filter-pill" type="button">People I met</button>
+          </div>
+        </div>
       </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Person</th>
-            <th>Company</th>
-            <th>Last meeting</th>
-            <th>Meetings</th>
-          </tr>
-        </thead>
-        <tbody>${tbody}</tbody>
-      </table>
+      ${tableHtml}
+      <div class="companies-empty-hint ${sortedPeople.length ? '' : 'visible'}">
+        <div class="companies-empty-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <p>People from your meetings in Audire will appear here</p>
+      </div>
 
-      <div class="inline-form" id="addPersonForm">
+      <div class="inline-form companies-add-form" id="addPersonForm">
         <input type="text" id="personName" placeholder="Name" style="flex:1;" />
         <input type="text" id="personEmail" placeholder="Email (optional)" style="flex:1;" />
         <button class="btn-primary-sm" id="addPersonBtn">Add person</button>
       </div>
-      <p class="text-muted mt-16" style="font-size: 13px;">People from your meetings will appear here as you capture sessions.</p>
     </div>
   `;
 
@@ -1139,78 +1250,82 @@ async function renderPeople() {
 async function renderCompanies() {
   content.innerHTML = `
     <div class="view">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-        <h1 style="font-size: 28px; font-weight: 700;">Companies</h1>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+        <h1 style="font-size:28px; font-weight:700;">Companies</h1>
       </div>
       <p class="text-muted">Loading...</p>
     </div>
   `;
 
   let orgs = [];
-  let orgKeyCounts = {};
   try {
     orgs = await invoke('list_organizations');
-    const statusLists = await Promise.all(orgs.map(async org => {
-      try {
-        const statuses = await invoke('list_org_shared_key_statuses', { orgId: org.id });
-        return [org.id, statuses.length];
-      } catch {
-        return [org.id, 0];
-      }
-    }));
-    orgKeyCounts = Object.fromEntries(statusLists);
   } catch (e) {
     console.error('list_organizations error:', e);
   }
 
-  let tbody = '';
-  for (const o of orgs) {
-    const lastMeeting = o.last_meeting_at
-      ? new Date(o.last_meeting_at * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : '-';
-    tbody += `
-      <tr>
-        <td>
-          <div class="person-cell">
-            <div class="person-avatar blue">${escapeHtml(o.name.charAt(0).toUpperCase())}</div>
-            <div>
-              <div class="person-name">${escapeHtml(o.name)}</div>
-              <div class="person-email">${escapeHtml(o.domain || '')}</div>
-              <div class="person-email">Shared keys: ${orgKeyCounts[o.id] || 0}</div>
-            </div>
+  const sortedOrgs = [...orgs].sort((a, b) => (b.last_meeting_at || 0) - (a.last_meeting_at || 0));
+  const rowsHtml = sortedOrgs.map((org, index) => {
+    const displayName = org.domain || org.name;
+    const sublabel = org.domain || displayName;
+    const lastNote = formatCompanyLastNote(org.last_meeting_at);
+    const noteCount = Math.max(1, org.people_count || 0);
+    return `
+      <div class="company-row" data-company-id="${org.id}">
+        <div class="company-main-cell">
+          <div class="company-logo tone-${(index % 4) + 1}">${renderCompanyLogo(displayName)}</div>
+          <div class="company-copy">
+            <div class="company-name">${escapeHtml(displayName)}</div>
+            <div class="company-domain">${escapeHtml(sublabel)}</div>
           </div>
-        </td>
-        <td>${o.people_count}</td>
-        <td class="text-muted">${lastMeeting}</td>
-      </tr>`;
-  }
+        </div>
+        <div class="company-last-note">${escapeHtml(lastNote)}</div>
+        <div class="company-notes-count">${noteCount}</div>
+      </div>
+    `;
+  }).join('');
 
-  if (orgs.length === 0) {
-    tbody = `<tr><td colspan="3" class="text-muted" style="text-align:center;padding:24px;">No companies added yet.</td></tr>`;
-  }
+  const tableHtml = sortedOrgs.length > 0
+    ? `
+      <div class="companies-table-shell">
+        <div class="companies-table-head">
+          <div>Company</div>
+          <div>Last note</div>
+          <div>Notes</div>
+        </div>
+        <div class="companies-table-body">
+          ${rowsHtml}
+        </div>
+      </div>
+    `
+    : '';
 
   content.innerHTML = `
-    <div class="view">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-        <h1 style="font-size: 28px; font-weight: 700;">Companies</h1>
+    <div class="view companies-view">
+      <div class="companies-page-header">
+        <h1 class="companies-title">Companies</h1>
+        <div class="companies-header-actions">
+          <button class="companies-icon-search" type="button" aria-label="Search companies">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </button>
+          <div class="companies-filter-bar">
+            <button class="companies-filter-pill active" type="button">All companies</button>
+            <button class="companies-filter-pill" type="button">Companies I met</button>
+          </div>
+        </div>
       </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Company</th>
-            <th>People</th>
-            <th>Last meeting</th>
-          </tr>
-        </thead>
-        <tbody>${tbody}</tbody>
-      </table>
-
-      <div class="inline-form" id="addOrgForm">
+      ${tableHtml}
+      <div class="companies-empty-hint ${sortedOrgs.length ? '' : 'visible'}">
+        <div class="companies-empty-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>
+        </div>
+        <p>Companies of people you meet in Audire will appear here</p>
+      </div>
+      <div class="inline-form companies-add-form" id="addOrgForm">
         <input type="text" id="orgName" placeholder="Company name" style="flex:1;" />
         <input type="text" id="orgDomain" placeholder="Domain (optional)" style="flex:1;" />
         <button class="btn-primary-sm" id="addOrgBtn">Add company</button>
       </div>
-      <p class="text-muted mt-16" style="font-size: 13px;">Companies of people you meet will appear here.</p>
     </div>
   `;
 
@@ -1225,6 +1340,33 @@ async function renderCompanies() {
       console.error('add_organization error:', e);
     }
   });
+}
+
+function renderCompanyLogo(label) {
+  const clean = (label || '').replace(/^www\./i, '');
+  const parts = clean.split(/[.\s-]+/).filter(Boolean);
+  const initials = (parts[0]?.[0] || clean[0] || '?') + (parts[1]?.[0] || '');
+  return escapeHtml(initials.toUpperCase().slice(0, 2));
+}
+
+function renderPersonAvatar(person) {
+  const name = person?.name || '';
+  const parts = name.split(/\s+/).filter(Boolean);
+  const initials = ((parts[0]?.[0] || name[0] || '?') + (parts[1]?.[0] || '')).toUpperCase();
+  return escapeHtml(initials.slice(0, 2));
+}
+
+function formatCompanyLastNote(tsSeconds) {
+  if (!tsSeconds) return 'No notes';
+  const date = new Date(tsSeconds * 1000);
+  const now = new Date();
+  const deltaDays = Math.floor((now.setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86400000);
+  if (deltaDays === 0) return 'Today';
+  if (deltaDays === 1) return 'Yesterday';
+  if (deltaDays > 1 && deltaDays < 7) {
+    return date.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 async function renderSettings() {
@@ -1356,24 +1498,45 @@ async function renderNoteEditor() {
     return;
   }
 
+  const isFreshNote = !(note.text || '').trim() && (!note.title || note.title === 'Untitled');
+
   content.innerHTML = `
-    <div class="view">
-      <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-        <button class="btn btn-ghost" id="noteBackBtn">Back</button>
+    <div class="quick-note-shell">
+      <div class="quick-note-topbar">
+        <button class="quick-note-back" id="noteBackBtn" aria-label="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
         <button class="btn-danger-sm" id="noteDeleteBtn">Delete</button>
       </div>
-      <div class="inline-form" style="margin-top:0; margin-bottom:12px;">
-        <select id="noteFolderSelect" style="min-width:180px;">
-          <option value="">No folder</option>
-          ${foldersCache.map(folder => `
-            <option value="${folder.id}" ${note.folder_id === folder.id ? 'selected' : ''}>
-              ${escapeHtml(folder.name)}
-            </option>
-          `).join('')}
-        </select>
+
+      <div class="quick-note-header">
+        <input class="note-title-input quick-note-title" id="noteTitleInput" value="${escapeHtml(note.title === 'Untitled' ? 'New note' : note.title)}" placeholder="New note" />
+        <div class="quick-note-meta-row">
+          <span class="quick-note-chip">Today</span>
+          <span class="quick-note-chip">Me</span>
+          <div class="select-wrap">
+            <select id="noteFolderSelect" class="quick-note-folder-select">
+              <option value="">Add to folder</option>
+              ${foldersCache.map(folder => `
+                <option value="${folder.id}" ${note.folder_id === folder.id ? 'selected' : ''}>
+                  ${escapeHtml(folder.name)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
       </div>
-      <input class="note-title-input" id="noteTitleInput" value="${escapeHtml(note.title)}" placeholder="Note title..." />
-      <div class="notes-editor" contenteditable="true" id="noteBodyEditor">${escapeHtml(note.text)}</div>
+
+      <div class="notes-editor quick-note-editor" contenteditable="true" id="noteBodyEditor">${escapeHtml(note.text)}</div>
+
+      ${isFreshNote ? `
+        <div class="quick-note-helper-card">
+          <div class="quick-note-helper-icon">+</div>
+          <h3>Quick note</h3>
+          <p>Use quick notes for thoughts, meeting prep, or action items that are not tied to a scheduled event yet.</p>
+          <p>Audire can turn this into a richer note once you start capturing or adding context.</p>
+        </div>
+      ` : ''}
     </div>
   `;
 
@@ -1420,6 +1583,48 @@ async function renderNoteEditor() {
     }
     currentStandaloneNoteId = null;
     navigate('notes');
+  });
+}
+
+function renderRecorderPill() {
+  content.innerHTML = `
+    <div class="recorder-pill-view">
+      <button class="recorder-pill-logo" id="recorderPillRestoreBtn" type="button" aria-label="Open Audire">
+        <span>A</span>
+      </button>
+      <div class="recorder-pill-center">
+        <div class="recorder-pill-dot"></div>
+        <div class="recorder-pill-timer" id="recorderPillTimer">00:00</div>
+        <div class="recorder-pill-status" id="recorderPillStatus">Listening</div>
+        <div class="recorder-pill-preview" id="recorderPillPreview">Waiting for speech...</div>
+      </div>
+      <div class="recorder-pill-wave" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <button class="recorder-pill-stop" id="recorderPillStopBtn" type="button" aria-label="Stop recording">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+        </svg>
+      </button>
+    </div>
+  `;
+
+  syncRecorderPillUi();
+
+  document.getElementById('recorderPillStopBtn')?.addEventListener('click', () => {
+    stopCapture();
+  });
+
+  document.getElementById('recorderPillRestoreBtn')?.addEventListener('click', async () => {
+    const mainWindow = await WebviewWindow.getByLabel('main');
+    await mainWindow?.show().catch(() => {});
+    await mainWindow?.unminimize().catch(() => {});
+    await mainWindow?.setFocus().catch(() => {});
+    await appWindow.hide().catch(() => {});
   });
 }
 
@@ -1494,24 +1699,28 @@ function updateTranscript() {
         id: seg.id,
         ts_ms: seg.ts_ms,
         text: seg.text,
-        kind: 'final',
+        kind: 'formatted-final',
       }))
     : finals.map(f => ({
         id: null,
         ts_ms: f.ts_ms,
         text: f.text,
-        kind: 'final',
+        kind: f.formatted ? 'formatted-final' : 'plain-final',
       }));
+
+  if (!transcriptRows.length && !partialText) {
+    html = `<p class="transcript-waiting">${isCapturing ? 'Listening...' : 'No transcript yet.'}</p>`;
+  }
 
   for (const row of transcriptRows) {
     html += `
       <div class="transcript-line ${row.kind}" ${row.id ? `data-transcript-segment="${row.id}"` : ''}>
-        <span class="ts">${escapeHtml(formatDateTime(row.ts_ms))}</span>
+        <span class="transcript-line-time">${escapeHtml(formatDateTime(row.ts_ms))}</span>
         ${escapeHtml(row.text)}
       </div>`;
   }
-  if (partialText) {
-    html += `<div class="transcript-line partial">${escapeHtml(partialText)}</div>`;
+  if (partialTranscript?.text) {
+    html += `<div class="transcript-line partial">${escapeHtml(partialTranscript.text)}</div>`;
   }
   el.innerHTML = html;
 
@@ -1543,6 +1752,19 @@ function formatShortTime(tsMs) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+function formatRelativeTime(tsMs) {
+  if (!tsMs) return '';
+  const diff = Date.now() - tsMs;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str ?? '';
@@ -1550,5 +1772,17 @@ function escapeHtml(str) {
 }
 
 // ---- Init ----
+hydrateCaptureUiState();
+hydrateSidebarState();
+window.addEventListener('storage', (event) => {
+  if (event.key !== CAPTURE_UI_STATE_KEY) return;
+  hydrateCaptureUiState();
+  updateCapturePillText();
+  updateCaptureTimer();
+  updateTranscript();
+  syncRecorderPillUi();
+});
+startRecorderPillMonitor();
+void loadSidebarFolders();
 const initHash = location.hash.slice(1) || 'home';
 navigate(initHash, false);

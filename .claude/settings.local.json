@@ -8,7 +8,9 @@
       "Bash(bunx tauri:*)",
       "Bash(rustup:*)",
       "WebFetch(domain:developers.deepgram.com)",
-      "WebFetch(domain:www.assemblyai.com)"
+      "WebFetch(domain:www.assemblyai.com)",
+      "Bash(find:*)",
+      "Bash(cargo check:*)"
     ]
   }
 }
