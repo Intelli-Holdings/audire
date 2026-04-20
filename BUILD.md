@@ -1,15 +1,15 @@
 # Audire Build & Packaging Guide
 
-This project can use **Bun** in the Tauri config. You do **not** need to use npm for the Tauri hooks. The `beforeDevCommand` and `beforeBuildCommand` values can call Bun directly.
+This project uses **npm** as the package manager. The Tauri config calls npm scripts for frontend builds.
 
-## Recommended Tauri config values
+## Tauri config values
 
-Use these build commands in `src-tauri/tauri.conf.json`:
+Current build commands in `src-tauri/tauri.conf.json`:
 
 ```json
 "build": {
-  "beforeDevCommand": "bun run dev",
-  "beforeBuildCommand": "bun run build",
+  "beforeDevCommand": "npm run dev",
+  "beforeBuildCommand": "npm run build",
   "devUrl": "http://localhost:5173",
   "frontendDist": "../dist"
 }
@@ -32,13 +32,7 @@ Build each platform **on that platform**:
 From the project root:
 
 ```bash
-bun tauri build
-```
-
-or:
-
-```bash
-bun run tauri build
+npm run tauri build
 ```
 
 Tauri uses the frontend output from `beforeBuildCommand`, then bundles the desktop app.
@@ -59,7 +53,7 @@ Run this on a **Windows** machine.
 
 - Rust toolchain
 - Visual Studio C++ build tools / MSVC
-- Bun
+- Node.js / npm
 - WebView2 runtime available for users, or let Tauri install/bootstrap it
 - Strawberry Perl if you keep `bundled-sqlcipher-vendored-openssl`
 
@@ -67,7 +61,7 @@ Run this on a **Windows** machine.
 
 ```bat
 cd C:\Repos\audire
-bun tauri build
+npm run tauri build
 ```
 
 ### Expected outputs
@@ -103,14 +97,14 @@ Run this on a **Linux** machine.
 ### Requirements
 
 - Rust toolchain
-- Bun
+- Node.js / npm
 - distro packaging tools as needed for the target format
 
 ### Build command
 
 ```bash
 cd /path/to/audire
-bun tauri build
+npm run tauri build
 ```
 
 ### Expected outputs
@@ -150,14 +144,14 @@ Run this on a **macOS** machine.
 
 - Rust toolchain
 - Xcode command line tools
-- Bun
+- Node.js / npm
 - Apple Developer signing setup for broad public distribution
 
 ### Build command
 
 ```bash
 cd /path/to/audire
-bun tauri build
+npm run tauri build
 ```
 
 ### Expected outputs
@@ -201,19 +195,19 @@ If you want one sensible default per platform:
 ### Development
 
 ```bash
-bun tauri dev
+npm run tauri dev
 ```
 
 ### Production build
 
 ```bash
-bun tauri build
+npm run tauri build
 ```
 
 ### Debug bundling
 
 ```bash
-bun tauri build --debug
+npm run tauri build --debug
 ```
 
 ---
