@@ -42,6 +42,8 @@ const AAI_URL: &str = "wss://streaming.assemblyai.com/v3/ws\
 ///
 /// SECURITY: api_key is used only in the auth header; never logged or returned to UI.
 pub async fn connect(api_key: &str) -> Result<(mpsc::Sender<Message>, mpsc::Receiver<Message>)> {
+    eprintln!("[asr:aai] connecting to {}", AAI_URL);
+
     let request = http::Request::builder()
         .uri(AAI_URL)
         .header("Authorization", api_key)
@@ -56,9 +58,14 @@ pub async fn connect(api_key: &str) -> Result<(mpsc::Sender<Message>, mpsc::Rece
         .body(())
         .map_err(|e| ParaError::Asr(format!("assemblyai build request: {}", e)))?;
 
-    let (ws, _resp) = connect_async(request)
+    let (ws, resp) = connect_async(request)
         .await
-        .map_err(|e| ParaError::Asr(format!("assemblyai connect: {}", e)))?;
+        .map_err(|e| {
+            eprintln!("[asr:aai] WebSocket connect FAILED: {}", e);
+            ParaError::Asr(format!("assemblyai connect: {}", e))
+        })?;
+
+    eprintln!("[asr:aai] WebSocket connected (status: {})", resp.status());
 
     let (mut ws_write, mut ws_read) = ws.split();
 
@@ -68,27 +75,71 @@ pub async fn connect(api_key: &str) -> Result<(mpsc::Sender<Message>, mpsc::Rece
 
     // Writer task
     tokio::spawn(async move {
+        let mut frames_sent: u64 = 0;
         while let Some(msg) = tx_rx.recv().await {
-            if ws_write.send(msg).await.is_err() {
-                break;
+            let is_binary = matches!(&msg, Message::Binary(_));
+            match ws_write.send(msg).await {
+                Ok(_) => {
+                    if is_binary {
+                        frames_sent += 1;
+                        if frames_sent == 1 {
+                            eprintln!("[asr:aai] first audio frame sent to AssemblyAI WebSocket");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[asr:aai] writer send error (after {} frames): {}", frames_sent, e);
+                    break;
+                }
             }
         }
+        eprintln!("[asr:aai] writer task ending (sent {} audio frames)", frames_sent);
         let _ = ws_write.close().await;
     });
 
     // Reader task
     tokio::spawn(async move {
-        while let Some(Ok(msg)) = ws_read.next().await {
-            match &msg {
-                Message::Text(_) | Message::Binary(_) => {
-                    if rx_tx.send(msg).await.is_err() {
-                        break;
+        let mut msgs_received: u64 = 0;
+        loop {
+            match ws_read.next().await {
+                Some(Ok(msg)) => {
+                    msgs_received += 1;
+                    match &msg {
+                        Message::Text(t) => {
+                            if msgs_received <= 3 {
+                                eprintln!("[asr:aai] recv msg #{}: {}", msgs_received, &t[..t.len().min(200)]);
+                            }
+                            if rx_tx.send(msg).await.is_err() {
+                                eprintln!("[asr:aai] reader: downstream channel closed");
+                                break;
+                            }
+                        }
+                        Message::Binary(_) => {
+                            if rx_tx.send(msg).await.is_err() {
+                                eprintln!("[asr:aai] reader: downstream channel closed");
+                                break;
+                            }
+                        }
+                        Message::Close(frame) => {
+                            eprintln!("[asr:aai] received Close frame: {:?}", frame);
+                            break;
+                        }
+                        other => {
+                            eprintln!("[asr:aai] ignoring ws message type: {:?}", other);
+                        }
                     }
                 }
-                Message::Close(_) => break,
-                _ => {}
+                Some(Err(e)) => {
+                    eprintln!("[asr:aai] WebSocket read error (after {} msgs): {}", msgs_received, e);
+                    break;
+                }
+                None => {
+                    eprintln!("[asr:aai] WebSocket stream ended (after {} msgs)", msgs_received);
+                    break;
+                }
             }
         }
+        eprintln!("[asr:aai] reader task ending (received {} msgs total)", msgs_received);
     });
 
     Ok((tx, rx))

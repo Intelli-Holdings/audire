@@ -927,15 +927,29 @@ impl LocalStore {
         owner_user_id: Option<&str>,
         owner_org_id: Option<&str>,
     ) -> Result<FolderRow> {
+        self.create_folder_with_description(name, kind, color, None, ownership_scope, owner_user_id, owner_org_id)
+    }
+
+    pub fn create_folder_with_description(
+        &self,
+        name: &str,
+        kind: &str,
+        color: Option<&str>,
+        description: Option<&str>,
+        ownership_scope: &str,
+        owner_user_id: Option<&str>,
+        owner_org_id: Option<&str>,
+    ) -> Result<FolderRow> {
         let now = Utc::now().timestamp();
         let conn = self.inner.lock().unwrap();
         conn.execute(
-            "INSERT INTO folders(name, kind, color, ownership_scope, owner_user_id, owner_org_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO folders(name, kind, color, description, ownership_scope, owner_user_id, owner_org_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![
                 name,
                 kind,
                 color,
+                description,
                 ownership_scope,
                 owner_user_id,
                 owner_org_id,
@@ -950,6 +964,7 @@ impl LocalStore {
             name: name.to_string(),
             kind: kind.to_string(),
             color: color.map(|s| s.to_string()),
+            description: description.map(|s| s.to_string()),
             ownership_scope: ownership_scope.to_string(),
             owner_user_id: owner_user_id.map(|s| s.to_string()),
             owner_org_id: owner_org_id.map(|s| s.to_string()),
@@ -1004,6 +1019,7 @@ impl LocalStore {
                         f.name,
                         f.kind,
                         f.color,
+                        f.description,
                         f.ownership_scope,
                         f.owner_user_id,
                         f.owner_org_id,
@@ -1026,13 +1042,14 @@ impl LocalStore {
                     name: row.get(1)?,
                     kind: row.get(2)?,
                     color: row.get(3)?,
-                    ownership_scope: row.get(4)?,
-                    owner_user_id: row.get(5)?,
-                    owner_org_id: row.get(6)?,
-                    meeting_count: row.get(7)?,
-                    note_count: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    description: row.get(4)?,
+                    ownership_scope: row.get(5)?,
+                    owner_user_id: row.get(6)?,
+                    owner_org_id: row.get(7)?,
+                    meeting_count: row.get(8)?,
+                    note_count: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })
             .map_err(|e| ParaError::Db(e.to_string()))?;
@@ -1908,6 +1925,7 @@ pub struct FolderRow {
     pub name: String,
     pub kind: String,
     pub color: Option<String>,
+    pub description: Option<String>,
     pub ownership_scope: String,
     pub owner_user_id: Option<String>,
     pub owner_org_id: Option<String>,
@@ -2258,6 +2276,13 @@ fn migrate(conn: &Connection) -> Result<()> {
     "#,
     )
     .map_err(|e| ParaError::Db(e.to_string()))?;
+
+    ensure_column(
+        conn,
+        "folders",
+        "description",
+        "ALTER TABLE folders ADD COLUMN description TEXT",
+    )?;
 
     // FTS5 virtual table + triggers (best effort).
     // If FTS5 is not available in the bundled build, queries fall back to LIKE.

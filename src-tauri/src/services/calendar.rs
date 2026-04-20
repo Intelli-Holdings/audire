@@ -255,12 +255,11 @@ fn save_tokens(keyvault: &KeyVault, provider: &str, tokens: &CalendarTokenBundle
 }
 
 fn generate_code_verifier() -> String {
-    format!(
-        "{}{}{}",
-        uuid::Uuid::new_v4().as_simple(),
-        uuid::Uuid::new_v4().as_simple(),
-        "audire"
-    )
+    use ring::rand::{SecureRandom, SystemRandom};
+    let rng = SystemRandom::new();
+    let mut buf = [0u8; 32];
+    rng.fill(&mut buf).expect("system random fill failed");
+    URL_SAFE_NO_PAD.encode(&buf)
 }
 
 fn generate_pkce_challenge(verifier: &str) -> String {
@@ -381,7 +380,12 @@ async fn connect_google(store: &LocalStore, keyvault: &KeyVault) -> Result<Calen
         urlencoding::encode(&challenge),
     );
     webbrowser::open(&auth_url).map_err(|e| ParaError::Other(format!("google oauth browser open failed: {}", e)))?;
-    let code = wait_for_oauth_code(listener, &state)?;
+    let expected_state = state.clone();
+    let code = tokio::task::spawn_blocking(move || {
+        wait_for_oauth_code(listener, &expected_state)
+    })
+    .await
+    .map_err(|e| ParaError::Other(format!("google oauth join failed: {}", e)))??;
 
     let client = Client::new();
     let token = client
@@ -436,7 +440,12 @@ async fn connect_microsoft(store: &LocalStore, keyvault: &KeyVault) -> Result<Ca
         urlencoding::encode(&challenge),
     );
     webbrowser::open(&auth_url).map_err(|e| ParaError::Other(format!("microsoft oauth browser open failed: {}", e)))?;
-    let code = wait_for_oauth_code(listener, &state)?;
+    let expected_state = state.clone();
+    let code = tokio::task::spawn_blocking(move || {
+        wait_for_oauth_code(listener, &expected_state)
+    })
+    .await
+    .map_err(|e| ParaError::Other(format!("microsoft oauth join failed: {}", e)))??;
 
     let client = Client::new();
     let token_url = format!(

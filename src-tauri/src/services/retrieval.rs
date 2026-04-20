@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::error::Result;
+use crate::keyvault::vault::KeyVault;
 use crate::store::db::{
     LocalStore, SegmentSearchHit, StandaloneNoteSearchHit, StructuredItemSearchHit,
 };
@@ -145,6 +146,49 @@ fn map_note_hit(hit: StandaloneNoteSearchHit) -> AskCitation {
         excerpt: hit.text,
         ts_ms: None,
         folder_name: hit.folder_name,
+    }
+}
+
+/// LLM-powered ask: runs keyword retrieval first, then passes context + query to LLM.
+pub async fn ask_with_llm(
+    store: &LocalStore,
+    keyvault: &KeyVault,
+    query: &str,
+    scope: &str,
+    meeting_id: Option<&str>,
+    folder_id: Option<i64>,
+) -> Result<AskAudireResp> {
+    // First, run keyword retrieval to get grounded context
+    let keyword_resp = ask(store, query, scope, meeting_id, folder_id)?;
+
+    if keyword_resp.citations.is_empty() {
+        return Ok(keyword_resp);
+    }
+
+    // Build context from citations
+    let context_parts: Vec<String> = keyword_resp
+        .citations
+        .iter()
+        .take(6)
+        .map(|c| format!("- [{}] {}", c.title, c.excerpt))
+        .collect();
+    let context = context_parts.join("\n");
+
+    let system_prompt = "You are Audire, a meeting intelligence assistant. Answer the user's \
+        question based ONLY on the provided meeting context. Be concise and factual. \
+        If the context doesn't contain enough information, say so.";
+
+    let user_prompt = format!(
+        "Context from meetings and notes:\n{}\n\nQuestion: {}",
+        context, query
+    );
+
+    match crate::llm::llm_call(keyvault, system_prompt, &user_prompt).await {
+        Ok(answer) => Ok(AskAudireResp {
+            answer,
+            citations: keyword_resp.citations,
+        }),
+        Err(_) => Ok(keyword_resp),
     }
 }
 

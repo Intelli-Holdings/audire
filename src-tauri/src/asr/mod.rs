@@ -47,8 +47,12 @@ pub async fn run_pipeline(
     // 1. Start mic capture (optional)
     let mic = if config.include_mic {
         match audio::mic_cpal::start_mic_capture(5) {
-            Ok(m) => Some(m),
+            Ok(m) => {
+                eprintln!("[asr] mic capture started: rate={} ch={}", m.fmt.sample_rate, m.fmt.channels);
+                Some(m)
+            }
             Err(e) => {
+                eprintln!("[asr] mic capture failed: {}", e);
                 let _ = app.emit(
                     "asr:status",
                     serde_json::json!({ "status": format!("mic unavailable: {}", e) }),
@@ -57,16 +61,21 @@ pub async fn run_pipeline(
             }
         }
     } else {
+        eprintln!("[asr] mic capture skipped (include_mic=false)");
         None
     };
 
     // 2. Start system audio capture (platform-dependent)
     let sys_result = start_system_audio(&config);
-    if let Err(ref e) = sys_result {
-        let _ = app.emit(
-            "asr:status",
-            serde_json::json!({ "status": format!("system audio: {}", e) }),
-        );
+    match &sys_result {
+        Ok(s) => eprintln!("[asr] system audio started: rate={} ch={}", s.fmt.sample_rate, s.fmt.channels),
+        Err(ref e) => {
+            eprintln!("[asr] system audio failed: {}", e);
+            let _ = app.emit(
+                "asr:status",
+                serde_json::json!({ "status": format!("system audio: {}", e) }),
+            );
+        }
     }
 
     if mic.is_none() && sys_result.is_err() {
@@ -117,13 +126,29 @@ pub async fn run_pipeline(
     let mut ws_rx = ws_rx;
 
     let mut recv_handle = tokio::spawn(async move {
+        let mut msg_count: u64 = 0;
+        let mut first_partial_logged = false;
+        let mut first_final_logged = false;
         loop {
             match events::recv_event(&mut ws_rx, &prov_rx).await {
                 Ok(ev) => {
+                    msg_count += 1;
+                    if msg_count <= 5 {
+                        eprintln!("[asr] msg #{} from {} (type: {})", msg_count, prov_rx, ev.event_type());
+                    }
                     if ev.is_termination() {
+                        eprintln!("[asr] received termination event from {}", prov_rx);
                         break;
                     }
+
+                    let has_partial = ev.partial_text().is_some();
+                    let has_final = ev.final_text().is_some();
+
                     if let Some(p) = ev.partial_text() {
+                        if !first_partial_logged {
+                            eprintln!("[asr] first partial received: \"{}\"", &p[..p.len().min(80)]);
+                            first_partial_logged = true;
+                        }
                         let formatted = ev.is_formatted();
                         let _ = app_rx.emit(
                             "asr:partial",
@@ -135,6 +160,10 @@ pub async fn run_pipeline(
                         );
                     }
                     if let Some(f) = ev.final_text() {
+                        if !first_final_logged {
+                            eprintln!("[asr] first final received: \"{}\"", &f[..f.len().min(80)]);
+                            first_final_logged = true;
+                        }
                         let ts_ms = chrono::Utc::now().timestamp_millis();
                         let formatted = ev.is_formatted();
                         let _ = app_rx.emit(
@@ -148,10 +177,23 @@ pub async fn run_pipeline(
                         );
                         let _ = store_rx.insert_segment(&meeting_rx, "SYS", ts_ms, &f, None);
                     }
+
+                    // Log messages that don't match any known pattern (Begin, Error, etc.)
+                    if !has_partial && !has_final && !ev.is_termination() {
+                        if let Some(raw) = ev.raw_json() {
+                            let msg_type = raw.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                            eprintln!("[asr] unhandled msg type '{}' from {}: {}", msg_type, prov_rx,
+                                serde_json::to_string(raw).unwrap_or_default().chars().take(300).collect::<String>());
+                        }
+                    }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    eprintln!("[asr] recv_event error (after {} msgs): {}", msg_count, e);
+                    break;
+                }
             }
         }
+        eprintln!("[asr] receiver loop exited after {} messages", msg_count);
     });
 
     // 5. Spawn sender task (audio ring -> resample -> WSS)
@@ -217,10 +259,11 @@ pub async fn run_pipeline(
 
 fn clear_capture_if_active(app: &tauri::AppHandle, meeting_id: &str) {
     let state = app.state::<AppState>();
-    let mut capture = state.capture.lock().unwrap();
-    if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(meeting_id) {
-        capture.take();
-    }
+    if let Ok(mut capture) = state.capture.lock() {
+        if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(meeting_id) {
+            capture.take();
+        }
+    };
 }
 
 /// Start system audio capture based on platform and config.
@@ -245,6 +288,16 @@ fn spawn_audio_sender(
         let mut scratch_mic = Vec::<i16>::with_capacity(48_000);
         let mut scratch_sys = Vec::<i16>::with_capacity(48_000);
         let ws_tx = ws_tx;
+        let mut first_frame_logged = false;
+        let mut empty_logged = false;
+        // Pre-built 100ms of silence at 16kHz mono pcm_s16le = 1600 samples × 2 bytes
+        // (3200 bytes). Sent as keep-alive when both buffers are empty so
+        // AssemblyAI/Deepgram do not terminate the session on apparent inactivity
+        // (e.g. WASAPI loopback emits nothing while the system is silent).
+        let silence_frame: Vec<u8> = vec![0u8; 1600 * 2];
+        let mut last_send_at = std::time::Instant::now();
+        // Emit silence every ~200ms of real-time silence.
+        let keepalive_interval = std::time::Duration::from_millis(200);
 
         loop {
             scratch_mic.clear();
@@ -273,9 +326,37 @@ fn spawn_audio_sender(
             }
 
             if scratch_mic.is_empty() && scratch_sys.is_empty() {
+                if !empty_logged {
+                    eprintln!("[asr] audio sender: both mic and sys buffers empty (will keep polling + silence keep-alive)");
+                    empty_logged = true;
+                }
+
+                // Silence keep-alive: prevents providers from terminating a session
+                // when the user is not speaking and nothing is playing through the
+                // system loopback.
+                if last_send_at.elapsed() >= keepalive_interval {
+                    if ws_tx
+                        .send(Message::Binary(silence_frame.clone().into()))
+                        .await
+                        .is_err()
+                    {
+                        eprintln!("[asr] audio sender: ws_tx send failed during keep-alive, exiting");
+                        return;
+                    }
+                    // Also emit a zero audio level so the UI shows "Listening..."
+                    // instead of a stale level.
+                    let _ = app.emit(
+                        "asr:audio_level",
+                        serde_json::json!({ "level": 0.0f32 }),
+                    );
+                    last_send_at = std::time::Instant::now();
+                }
+
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
             }
+            // Reset empty flag once we get data
+            empty_logged = false;
 
             let mic_fmt = mic.as_ref().map(|m| m.fmt);
             let sys_fmt = sys.as_ref().map(|s| s.fmt);
@@ -320,10 +401,16 @@ fn spawn_audio_sender(
             };
 
             let frames = audio::resample::frame_16k_100ms(&mono_16k);
-            for frame in frames {
-                if ws_tx.send(Message::Binary(frame.into())).await.is_err() {
+            for frame in &frames {
+                if !first_frame_logged {
+                    eprintln!("[asr] first audio frame sent to WSS: {} bytes", frame.len());
+                    first_frame_logged = true;
+                }
+                if ws_tx.send(Message::Binary(frame.clone().into())).await.is_err() {
+                    eprintln!("[asr] audio sender: ws_tx send failed, exiting");
                     return;
                 }
+                last_send_at = std::time::Instant::now();
             }
         }
     })

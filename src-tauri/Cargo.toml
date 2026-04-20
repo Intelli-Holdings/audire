@@ -1,6 +1,6 @@
 [package]
 name = "audire"
-version = "0.1.0"
+version = "0.1.1"
 description = "Audire - local-first transcription and notes"
 authors = ["Intell Holdings Inc"]
 edition = "2021"
@@ -77,7 +77,7 @@ keyring = { version = "3", features = ["windows-native"] }
 # Default features: enable ASR providers + platform system audio backend.
 # On Windows: sys_audio_windows pulls in WASAPI.
 # macOS/Linux backends use cpal/process spawning and don't need extra deps.
-default = ["asr_deepgram", "asr_assemblyai", "sys_audio_windows"]
+default = ["asr_deepgram", "asr_assemblyai", "sys_audio_windows", "llm_openai", "llm_anthropic"]
 # ASR providers (always compiled; actual usage requires BYOK)
 asr_deepgram = []
 asr_assemblyai = []

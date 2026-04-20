@@ -255,12 +255,29 @@ fn build_summary(template_kind: &str, user_lines: &[String], segments: &[Segment
     }
 
     if !segments.is_empty() {
-        let transcript_blend = segments
-            .iter()
-            .take(2)
-            .map(|seg| excerpt(&seg.text, 120))
-            .collect::<Vec<_>>()
-            .join(" ");
+        // Sample beginning, middle, and end for better coverage
+        let total = segments.len();
+        let mut sampled = Vec::new();
+
+        // Beginning
+        if let Some(seg) = segments.first() {
+            sampled.push(excerpt(&seg.text, 120));
+        }
+
+        // Middle
+        if total > 2 {
+            let mid = total / 2;
+            sampled.push(excerpt(&segments[mid].text, 120));
+        }
+
+        // End
+        if total > 1 {
+            if let Some(seg) = segments.last() {
+                sampled.push(excerpt(&seg.text, 120));
+            }
+        }
+
+        let transcript_blend = sampled.join(" ... ");
         parts.push(format!(
             "{} focus from the transcript: {}",
             template_summary_lead(template_kind),
@@ -271,7 +288,8 @@ fn build_summary(template_kind: &str, user_lines: &[String], segments: &[Segment
     if parts.is_empty() {
         "No transcript or notes were available to generate a structured summary.".to_string()
     } else {
-        parts.join(" ")
+        let label = "(Rule-based summary — add an LLM API key for AI-powered results.)";
+        format!("{}\n\n{}", parts.join(" "), label)
     }
 }
 

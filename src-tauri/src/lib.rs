@@ -52,6 +52,7 @@ pub fn run() {
             ipc::update_structured_note_item,
             ipc::set_meeting_template,
             ipc::ask_audire,
+            ipc::ask_audire_llm,
             ipc::list_folders,
             ipc::create_folder,
             ipc::update_folder,

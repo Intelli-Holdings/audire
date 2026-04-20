@@ -26,6 +26,22 @@ pub enum AsrEvent {
 }
 
 impl AsrEvent {
+    /// Return a short string describing the event type for diagnostic logging.
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            AsrEvent::DeepgramFlux(_) => "DeepgramFlux",
+            AsrEvent::AssemblyAi(_) => "AssemblyAi",
+            AsrEvent::Mock(_) => "Mock",
+        }
+    }
+
+    /// Access the raw JSON for diagnostic logging of unhandled message types.
+    pub fn raw_json(&self) -> Option<&Value> {
+        match self {
+            AsrEvent::DeepgramFlux(v) | AsrEvent::AssemblyAi(v) | AsrEvent::Mock(v) => Some(v),
+        }
+    }
+
     /// Whether the provider considers this transcript text formatted.
     /// AssemblyAI exposes `turn_is_formatted`; other providers default to `true`
     /// for finals and `false` for partials.
@@ -71,12 +87,13 @@ impl AsrEvent {
                 if ty != "Turn" {
                     return None;
                 }
-                // Partial if end_of_turn is false
-                let eot = v
-                    .get("end_of_turn")
+                // Partial = not yet formatted (matches AssemblyAI sample: typewriter
+                // display while turn_is_formatted is false, commit when true).
+                let formatted = v
+                    .get("turn_is_formatted")
                     .and_then(|x| x.as_bool())
                     .unwrap_or(false);
-                if eot {
+                if formatted {
                     return None;
                 }
                 let t = v.get("transcript")?.as_str()?.to_string();
@@ -122,11 +139,14 @@ impl AsrEvent {
                 if ty != "Turn" {
                     return None;
                 }
-                let eot = v
-                    .get("end_of_turn")
+                // Final = formatted turn (matches AssemblyAI sample: only commit
+                // when turn_is_formatted is true — the polished version with
+                // punctuation and capitalization).
+                let formatted = v
+                    .get("turn_is_formatted")
                     .and_then(|x| x.as_bool())
                     .unwrap_or(false);
-                if !eot {
+                if !formatted {
                     return None;
                 }
                 let t = v.get("transcript")?.as_str()?.to_string();
@@ -322,10 +342,12 @@ mod tests {
 
     #[test]
     fn test_aai_turn_partial() {
+        // Partial: turn_is_formatted=false (still streaming, typewriter display)
         let json = serde_json::json!({
             "type": "Turn",
             "turn_order": 1,
             "end_of_turn": false,
+            "turn_is_formatted": false,
             "transcript": "Hello how are",
             "words": []
         });
@@ -335,19 +357,43 @@ mod tests {
     }
 
     #[test]
-    fn test_aai_turn_final() {
+    fn test_aai_turn_unformatted_eot_is_partial() {
+        // end_of_turn=true but NOT yet formatted → still a partial display
         let json = serde_json::json!({
             "type": "Turn",
             "turn_order": 1,
             "end_of_turn": true,
-            "transcript": "Hello how are you today",
+            "turn_is_formatted": false,
+            "transcript": "hello how are you today",
+            "words": []
+        });
+        let ev = AsrEvent::AssemblyAi(json);
+        assert_eq!(
+            ev.partial_text(),
+            Some("hello how are you today".to_string())
+        );
+        assert_eq!(ev.final_text(), None);
+    }
+
+    #[test]
+    fn test_aai_turn_final() {
+        // Final: turn_is_formatted=true (committed, polished text)
+        let json = serde_json::json!({
+            "type": "Turn",
+            "turn_order": 1,
+            "end_of_turn": true,
+            "turn_is_formatted": true,
+            "transcript": "Hello, how are you today?",
             "words": [
                 {"text": "Hello", "start": 100, "end": 300, "confidence": 0.99}
             ]
         });
         let ev = AsrEvent::AssemblyAi(json);
         assert_eq!(ev.partial_text(), None);
-        assert_eq!(ev.final_text(), Some("Hello how are you today".to_string()));
+        assert_eq!(
+            ev.final_text(),
+            Some("Hello, how are you today?".to_string())
+        );
     }
 
     #[test]

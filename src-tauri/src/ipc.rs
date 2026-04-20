@@ -12,6 +12,14 @@ use crate::store::db::{
 };
 
 use serde::Serialize;
+use std::sync::Mutex;
+
+/// Lock a mutex gracefully, returning a ParaError instead of panicking on poison.
+fn lock_mutex<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
+    mutex
+        .lock()
+        .map_err(|e| ParaError::Other(format!("mutex lock failed: {}", e)))
+}
 
 // ---- start_capture ----
 
@@ -84,7 +92,7 @@ pub fn start_capture(
     include_mic: Option<bool>,
     target_process: Option<u32>,
 ) -> Result<StartCaptureResp> {
-    let mut guard = state.capture.lock().unwrap();
+    let mut guard = lock_mutex(&state.capture)?;
     if guard.is_some() {
         return Err(ParaError::InvalidState("capture already running".into()));
     }
@@ -152,10 +160,11 @@ pub fn start_capture(
         }
 
         let managed_state = app_handle.state::<AppState>();
-        let mut capture = managed_state.capture.lock().unwrap();
-        if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(mid.as_str()) {
-            capture.take();
-        }
+        if let Ok(mut capture) = managed_state.capture.lock() {
+            if capture.as_ref().map(|handle| handle.meeting_id.as_str()) == Some(mid.as_str()) {
+                capture.take();
+            }
+        };
     });
 
     *guard = Some(CaptureHandle {
@@ -172,7 +181,7 @@ pub fn start_capture(
 /// Sends stop signal to pipeline, which triggers Finalize/Terminate on ASR.
 #[tauri::command]
 pub fn stop_capture(state: tauri::State<'_, AppState>, meeting_id: String) -> Result<()> {
-    let mut guard = state.capture.lock().unwrap();
+    let mut guard = lock_mutex(&state.capture)?;
     let handle = guard
         .take()
         .ok_or_else(|| ParaError::InvalidState("no capture running".into()))?;
@@ -208,14 +217,14 @@ pub struct RunRecipeResp {
     pub text: String,
 }
 
-/// IPC: run_recipe { meetingId, recipeId: "summary" }
+/// IPC: run_recipe { meetingId, recipeId }
 #[tauri::command]
-pub fn run_recipe(
+pub async fn run_recipe(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     recipe_id: String,
 ) -> Result<RunRecipeResp> {
-    let out = recipe::run_recipe(&state, &meeting_id, &recipe_id)?;
+    let out = recipe::run_recipe(&state, &meeting_id, &recipe_id).await?;
     Ok(RunRecipeResp { text: out })
 }
 
@@ -314,9 +323,9 @@ pub fn delete_api_key(state: tauri::State<'_, AppState>, provider: String) -> Re
 }
 
 #[tauri::command]
-pub fn get_session_context(state: tauri::State<'_, AppState>) -> SessionContextResp {
-    let session = state.session.lock().unwrap().clone();
-    SessionContextResp { session }
+pub fn get_session_context(state: tauri::State<'_, AppState>) -> Result<SessionContextResp> {
+    let session = lock_mutex(&state.session)?.clone();
+    Ok(SessionContextResp { session })
 }
 
 #[tauri::command]
@@ -333,7 +342,7 @@ pub fn set_session_context(
         email.as_deref(),
         active_org_id.as_deref(),
     )?;
-    let mut session = state.session.lock().unwrap();
+    let mut session = lock_mutex(&state.session)?;
     *session = SessionContext {
         mode,
         user_id,
@@ -509,6 +518,25 @@ pub fn ask_audire(
     )
 }
 
+#[tauri::command]
+pub async fn ask_audire_llm(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    scope: Option<String>,
+    meeting_id: Option<String>,
+    folder_id: Option<i64>,
+) -> Result<retrieval::AskAudireResp> {
+    retrieval::ask_with_llm(
+        &state.store,
+        &state.keyvault,
+        &query,
+        scope.as_deref().unwrap_or("all"),
+        meeting_id.as_deref(),
+        folder_id,
+    )
+    .await
+}
+
 // ---- Folders ----
 
 #[tauri::command]
@@ -522,8 +550,9 @@ pub fn create_folder(
     name: String,
     kind: String,
     color: Option<String>,
+    description: Option<String>,
 ) -> Result<FolderRow> {
-    folders::create_folder(&state.store, &name, &kind, color.as_deref())
+    folders::create_folder(&state.store, &name, &kind, color.as_deref(), description.as_deref())
 }
 
 #[tauri::command]

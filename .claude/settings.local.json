@@ -10,7 +10,19 @@
       "WebFetch(domain:developers.deepgram.com)",
       "WebFetch(domain:www.assemblyai.com)",
       "Bash(find:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(pacman:*)",
+      "Bash(cpan Locale::Maketext::Simple:*)",
+      "Bash(/c/Strawberry/perl/bin/perl.exe:*)",
+      "Bash(PATH=\"/c/Strawberry/perl/bin:$PATH\" cargo check:*)",
+      "Bash(PATH=\"/c/Strawberry/perl/bin:/c/Users/The Monarch/.cargo/bin:$PATH\" cargo check:*)",
+      "Bash(chmod +x:*)",
+      "Bash(bash:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }

@@ -15,8 +15,9 @@ pub fn create_folder(
     name: &str,
     kind: &str,
     color: Option<&str>,
+    description: Option<&str>,
 ) -> Result<FolderRow> {
-    store.create_folder(name, kind, color, "local_only", None, None)
+    store.create_folder_with_description(name, kind, color, description, "local_only", None, None)
 }
 
 pub fn get_folder_detail(store: &LocalStore, folder_id: i64) -> Result<FolderDetail> {
