@@ -50,8 +50,18 @@ struct GoogleEventItem {
     summary: Option<String>,
     location: Option<String>,
     organizer: Option<GoogleEventOrganizer>,
+    attendees: Option<Vec<GoogleEventAttendee>>,
     start: GoogleEventDateTime,
     end: GoogleEventDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleEventAttendee {
+    email: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(rename = "self")]
+    is_self: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,8 +104,15 @@ struct MicrosoftEventItem {
     subject: Option<String>,
     location: Option<MicrosoftLocation>,
     organizer: Option<MicrosoftOrganizer>,
+    attendees: Option<Vec<MicrosoftAttendee>>,
     start: MicrosoftDateTime,
     end: MicrosoftDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct MicrosoftAttendee {
+    #[serde(rename = "emailAddress")]
+    email_address: Option<MicrosoftEmailAddress>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -674,24 +691,45 @@ async fn fetch_google_upcoming(
         .await
         .map_err(|e| ParaError::Other(format!("google calendar decode failed: {}", e)))?;
 
+    let acct_email = account.as_ref().and_then(|row| row.email.clone());
     Ok(resp
         .items
         .into_iter()
-        .map(|item| UpcomingCalendarEventRow {
-            provider: GOOGLE_PROVIDER.to_string(),
-            account_email: account.as_ref().and_then(|row| row.email.clone()),
-            external_id: item.id,
-            title: item.summary.unwrap_or_else(|| "Untitled event".to_string()),
-            start: item
-                .start
-                .date_time
-                .or(item.start.date)
-                .unwrap_or_default(),
-            end: item.end.date_time.or(item.end.date).unwrap_or_default(),
-            organizer: item
-                .organizer
-                .and_then(|o| o.display_name.or(o.email)),
-            location: item.location,
+        .map(|item| {
+            let attendees = item
+                .attendees
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| a.is_self != Some(true))
+                .filter_map(|a| {
+                    let email = a.email?;
+                    // Skip the account's own email
+                    if acct_email.as_deref() == Some(email.as_str()) {
+                        return None;
+                    }
+                    Some(crate::store::db::EventAttendee {
+                        name: a.display_name,
+                        email,
+                    })
+                })
+                .collect();
+            UpcomingCalendarEventRow {
+                provider: GOOGLE_PROVIDER.to_string(),
+                account_email: acct_email.clone(),
+                external_id: item.id,
+                title: item.summary.unwrap_or_else(|| "Untitled event".to_string()),
+                start: item
+                    .start
+                    .date_time
+                    .or(item.start.date)
+                    .unwrap_or_default(),
+                end: item.end.date_time.or(item.end.date).unwrap_or_default(),
+                organizer: item
+                    .organizer
+                    .and_then(|o| o.display_name.or(o.email)),
+                location: item.location,
+                attendees,
+            }
         })
         .collect())
 }
@@ -723,20 +761,41 @@ async fn fetch_microsoft_upcoming(
         .await
         .map_err(|e| ParaError::Other(format!("microsoft calendar decode failed: {}", e)))?;
 
+    let acct_email = account.as_ref().and_then(|row| row.email.clone());
     Ok(resp
         .value
         .into_iter()
-        .map(|item| UpcomingCalendarEventRow {
-            provider: MICROSOFT_PROVIDER.to_string(),
-            account_email: account.as_ref().and_then(|row| row.email.clone()),
-            external_id: item.id,
-            title: item.subject.unwrap_or_else(|| "Untitled event".to_string()),
-            start: item.start.date_time,
-            end: item.end.date_time,
-            organizer: item
-                .organizer
-                .and_then(|o| o.email_address.and_then(|e| e.name.or(e.address))),
-            location: item.location.and_then(|loc| loc.display_name),
+        .map(|item| {
+            let attendees = item
+                .attendees
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|a| {
+                    let ea = a.email_address?;
+                    let email = ea.address?;
+                    // Skip the account's own email
+                    if acct_email.as_deref() == Some(email.as_str()) {
+                        return None;
+                    }
+                    Some(crate::store::db::EventAttendee {
+                        name: ea.name,
+                        email,
+                    })
+                })
+                .collect();
+            UpcomingCalendarEventRow {
+                provider: MICROSOFT_PROVIDER.to_string(),
+                account_email: acct_email.clone(),
+                external_id: item.id,
+                title: item.subject.unwrap_or_else(|| "Untitled event".to_string()),
+                start: item.start.date_time,
+                end: item.end.date_time,
+                organizer: item
+                    .organizer
+                    .and_then(|o| o.email_address.and_then(|e| e.name.or(e.address))),
+                location: item.location.and_then(|loc| loc.display_name),
+                attendees,
+            }
         })
         .collect())
 }

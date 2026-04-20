@@ -70,6 +70,7 @@ pub fn run() {
             ipc::list_all_participants,
             ipc::add_organization,
             ipc::list_organizations,
+            ipc::import_event_attendees,
             ipc::list_llm_providers,
             ipc::set_preferred_llm_provider,
             ipc::save_ollama_endpoint,
@@ -78,6 +79,8 @@ pub fn run() {
             ipc::update_detection_settings,
             ipc::list_detection_prompts,
             ipc::respond_to_detection_prompt,
+            ipc::start_detector,
+            ipc::stop_detector,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Audire");

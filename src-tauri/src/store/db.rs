@@ -8,6 +8,46 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+/// Common free email domains that shouldn't create organization entries.
+fn is_free_email_domain(domain: &str) -> bool {
+    matches!(
+        domain.to_lowercase().as_str(),
+        "gmail.com"
+            | "yahoo.com"
+            | "hotmail.com"
+            | "outlook.com"
+            | "live.com"
+            | "aol.com"
+            | "icloud.com"
+            | "me.com"
+            | "mail.com"
+            | "protonmail.com"
+            | "proton.me"
+            | "zoho.com"
+            | "yandex.com"
+            | "gmx.com"
+            | "gmx.net"
+    )
+}
+
+/// Convert a domain to a human-readable organization name.
+/// e.g. "acme-corp.com" -> "Acme Corp"
+fn domain_to_org_name(domain: &str) -> String {
+    let base = domain.split('.').next().unwrap_or(domain);
+    base.split(|c: char| c == '-' || c == '_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    first.to_uppercase().to_string() + chars.as_str()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Encrypted local store (SQLCipher) for transcripts and notes.
 ///
 /// Privacy guarantees:
@@ -1826,6 +1866,39 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Import attendees from a calendar event into participants + organizations.
+    /// Deduplicates by email (participants) and domain (organizations).
+    /// Links each participant to the meeting and to their org.
+    pub fn import_event_attendees(
+        &self,
+        meeting_id: &str,
+        attendees: &[EventAttendee],
+    ) -> Result<()> {
+        for attendee in attendees {
+            let name = attendee
+                .name
+                .as_deref()
+                .unwrap_or_else(|| attendee.email.split('@').next().unwrap_or("Unknown"));
+
+            // Create or find participant (dedup by email)
+            let participant = self.add_participant(name, Some(&attendee.email), "calendar")?;
+
+            // Link participant to this meeting
+            self.link_participant_meeting(meeting_id, participant.id)?;
+
+            // Extract domain from email, create org, and link
+            if let Some(domain) = attendee.email.split('@').nth(1) {
+                // Skip common free email providers
+                if !is_free_email_domain(domain) {
+                    let org_name = domain_to_org_name(domain);
+                    let org = self.add_organization(&org_name, Some(domain))?;
+                    self.link_participant_org(participant.id, org.id)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn list_organizations(&self) -> Result<Vec<OrganizationRow>> {
         let conn = self.inner.lock().unwrap();
         let mut stmt = conn
@@ -2081,6 +2154,13 @@ pub struct UpcomingCalendarEventRow {
     pub end: String,
     pub organizer: Option<String>,
     pub location: Option<String>,
+    pub attendees: Vec<EventAttendee>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventAttendee {
+    pub name: Option<String>,
+    pub email: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -57,8 +57,8 @@ pub async fn run_recipe(state: &AppState, meeting_id: &str, recipe_id: &str) -> 
 
     let (system_prompt, user_prompt) = prompt_for_recipe(recipe_id, &context);
 
-    // Try LLM first
-    match crate::llm::llm_call(&state.keyvault, &system_prompt, &user_prompt).await {
+    // Try LLM via multi-provider registry (preferred → fallback chain)
+    match state.llm_registry.call_preferred(&state.keyvault, &state.store, &system_prompt, &user_prompt).await {
         Ok(text) => Ok(text),
         Err(_no_key_msg) => {
             // Rule-based fallback for summary; error for others
@@ -73,12 +73,12 @@ pub async fn run_recipe(state: &AppState, meeting_id: &str, recipe_id: &str) -> 
                 };
                 let md = meeting_notes::render_markdown(&note);
                 Ok(format!(
-                    "{}\n\n---\n*Rule-based summary. Add an Anthropic or OpenAI API key in Settings for AI-powered results.*",
+                    "{}\n\n---\n*Rule-based summary. Add an API key (Anthropic, OpenAI, Gemini) or configure Ollama in Settings for AI-powered results.*",
                     md
                 ))
             } else {
                 Err(ParaError::Other(format!(
-                    "The \"{}\" recipe requires an LLM API key. Add an Anthropic or OpenAI key in Settings.",
+                    "The \"{}\" recipe requires an LLM provider. Add an API key (Anthropic, OpenAI, Gemini) or configure Ollama in Settings.",
                     recipe_id
                 )))
             }
@@ -109,10 +109,10 @@ async fn run_cross_meeting_recipe(state: &AppState, recipe_id: &str) -> Result<S
 
     let (system_prompt, user_prompt) = prompt_for_recipe(recipe_id, &context);
 
-    match crate::llm::llm_call(&state.keyvault, &system_prompt, &user_prompt).await {
+    match state.llm_registry.call_preferred(&state.keyvault, &state.store, &system_prompt, &user_prompt).await {
         Ok(text) => Ok(text),
         Err(msg) => Err(ParaError::Other(format!(
-            "The \"{}\" recipe requires an LLM API key. {}",
+            "The \"{}\" recipe requires an LLM provider. {}",
             recipe_id, msg
         ))),
     }

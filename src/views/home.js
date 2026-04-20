@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
+import { startCapture } from '../sidebar.js';
 
 let appState = null;
 let onNavigateToTranscript = null;
@@ -203,13 +204,20 @@ export async function renderHomeView() {
           const start = parseEventDate(ev.start);
           const end = parseEventDate(ev.end);
           const timeRange = `${formatClockTime(start)} \u2013 ${formatClockTime(end)}`;
+          const attendeeCount = ev.attendees?.length || 0;
+          const attendeeHint = attendeeCount > 0
+            ? `<span class="calendar-event-attendees">${attendeeCount} attendee${attendeeCount > 1 ? 's' : ''}</span>`
+            : '';
           entriesHtml += `
-            <div class="calendar-event-entry">
+            <div class="calendar-event-entry" data-event-id="${escapeHtml(ev.external_id)}">
               <div class="calendar-event-bar"></div>
               <div class="calendar-event-info">
                 <span class="calendar-event-title">${escapeHtml(ev.title || 'Untitled event')}</span>
-                <span class="calendar-event-time">${escapeHtml(timeRange)}</span>
+                <span class="calendar-event-time">${escapeHtml(timeRange)}${attendeeHint}</span>
               </div>
+              <button class="calendar-event-record-btn" title="Record this meeting">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+              </button>
             </div>`;
         }
       }
@@ -294,6 +302,20 @@ export async function renderHomeView() {
     el.addEventListener('click', () => {
       appState.meetingId = el.dataset.mid;
       if (onNavigateToTranscript) onNavigateToTranscript();
+    });
+  });
+
+  // Calendar event record buttons — start capture with attendees auto-imported
+  container.querySelectorAll('.calendar-event-record-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const entry = btn.closest('[data-event-id]');
+      if (!entry) return;
+      const eventId = entry.dataset.eventId;
+      const ev = events.find(ev => ev.external_id === eventId);
+      if (ev) {
+        startCapture(ev);
+      }
     });
   });
 

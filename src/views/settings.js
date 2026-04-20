@@ -60,6 +60,8 @@ export async function renderSettingsView() {
         <button class="settings-nav-item ${currentSection === 'preferences' ? 'active' : ''}" data-section="preferences">Preferences</button>
         <button class="settings-nav-item ${currentSection === 'calendar' ? 'active' : ''}" data-section="calendar">Calendar</button>
         <button class="settings-nav-item ${currentSection === 'connectors' ? 'active' : ''}" data-section="connectors">API Keys</button>
+        <button class="settings-nav-item ${currentSection === 'detection' ? 'active' : ''}" data-section="detection">Detection</button>
+        <button class="settings-nav-item ${currentSection === 'ai_provider' ? 'active' : ''}" data-section="ai_provider">AI Provider</button>
 
         <div class="settings-nav-section-label">Info</div>
         <button class="settings-nav-item ${currentSection === 'about' ? 'active' : ''}" data-section="about">About</button>
@@ -97,6 +99,12 @@ async function renderSection() {
       break;
     case 'connectors':
       await renderConnectorsSection(panel);
+      break;
+    case 'detection':
+      await renderDetectionSection(panel);
+      break;
+    case 'ai_provider':
+      await renderAiProviderSection(panel);
       break;
     case 'about':
       renderAboutSection(panel);
@@ -269,6 +277,181 @@ async function renderConnectorsSection(panel) {
   `;
 
   bindKeyEvents();
+}
+
+async function renderDetectionSection(panel) {
+  let settings = {};
+  try {
+    settings = await invoke('get_detection_settings');
+  } catch (e) {
+    console.error('get_detection_settings error:', e);
+  }
+
+  panel.innerHTML = `
+    <h2 class="settings-content-title">Detection</h2>
+    <p class="settings-section-desc">Automatically detect when meetings start and prompt you to record.</p>
+
+    <div class="settings-toggle-row">
+      <div class="settings-toggle-info">
+        <div class="settings-toggle-label">Calendar detection</div>
+        <div class="settings-toggle-desc">Prompt to record when a calendar event is about to start</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="det-calendar-toggle" ${settings.calendar_detection_enabled ? 'checked' : ''} />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="settings-toggle-row">
+      <div class="settings-toggle-info">
+        <div class="settings-toggle-label">Lead time</div>
+        <div class="settings-toggle-desc">Minutes before event start to show the prompt</div>
+      </div>
+      <input type="number" class="inline-input" id="det-lead-minutes" min="1" max="30" value="${settings.calendar_lead_minutes || 5}" style="width:70px;" />
+    </div>
+
+    <div class="settings-toggle-row">
+      <div class="settings-toggle-info">
+        <div class="settings-toggle-label">Auto-stop recording</div>
+        <div class="settings-toggle-desc">Stop recording when the calendar event ends</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="det-autostop-toggle" ${settings.auto_stop_enabled ? 'checked' : ''} />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="settings-toggle-row" style="border-bottom:none; opacity:0.5;">
+      <div class="settings-toggle-info">
+        <div class="settings-toggle-label">Audio detection</div>
+        <div class="settings-toggle-desc">Detect meeting audio and prompt automatically (coming soon)</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" disabled />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  `;
+
+  // Bind toggles
+  const calToggle = document.getElementById('det-calendar-toggle');
+  const leadInput = document.getElementById('det-lead-minutes');
+  const autoStopToggle = document.getElementById('det-autostop-toggle');
+
+  async function saveDetectionSettings() {
+    const updated = {
+      ...settings,
+      calendar_detection_enabled: calToggle.checked,
+      calendar_lead_minutes: parseInt(leadInput.value, 10) || 5,
+      auto_stop_enabled: autoStopToggle.checked,
+    };
+    try {
+      await invoke('update_detection_settings', { settings: updated });
+      settings = updated;
+    } catch (e) {
+      showToast('Failed to save detection settings: ' + e, 'error');
+    }
+  }
+
+  calToggle.addEventListener('change', saveDetectionSettings);
+  leadInput.addEventListener('change', saveDetectionSettings);
+  autoStopToggle.addEventListener('change', saveDetectionSettings);
+}
+
+async function renderAiProviderSection(panel) {
+  let providers = [];
+  let settings = {};
+  try {
+    providers = await invoke('list_llm_providers');
+    settings = await invoke('get_detection_settings');
+  } catch (e) {
+    console.error('AI provider load error:', e);
+  }
+
+  const preferredId = settings.preferred_llm_provider || 'anthropic';
+
+  const providerRowsHtml = providers.map(p => {
+    const checked = p.id === preferredId ? 'checked' : '';
+    const availClass = p.available ? 'set' : '';
+    const availLabel = p.available ? 'Available' : 'Not configured';
+    return `
+      <div class="key-row">
+        <div class="key-row-info" style="align-items:center;">
+          <label style="display:flex; align-items:center; gap:var(--space-2); cursor:pointer;">
+            <input type="radio" name="preferred-llm" value="${escapeHtml(p.id)}" ${checked} />
+            <span class="key-row-label">${escapeHtml(p.name)}</span>
+          </label>
+          <span class="key-row-status ${availClass}">${availLabel}</span>
+        </div>
+        <div class="key-row-actions">
+          <button class="btn-ghost btn-sm" data-test-llm="${escapeHtml(p.id)}">Test</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const ollamaEndpoint = settings.ollama_endpoint || 'http://localhost:11434';
+  const ollamaModel = settings.ollama_model || 'llama3';
+
+  panel.innerHTML = `
+    <h2 class="settings-content-title">AI Provider</h2>
+    <p class="settings-section-desc">Select which LLM to use for recipes and AI features. Falls back through other available providers if the preferred one fails.</p>
+
+    ${providerRowsHtml}
+
+    <h3 style="margin-top:var(--space-6); margin-bottom:var(--space-3); font-size:var(--text-sm); color:var(--color-text-muted); text-transform:uppercase; letter-spacing:0.04em;">Ollama Configuration</h3>
+    <div class="key-row">
+      <div class="key-row-info" style="flex-direction:column; align-items:flex-start; gap:var(--space-2);">
+        <input type="text" class="inline-input" id="ollama-endpoint" placeholder="http://localhost:11434" value="${escapeHtml(ollamaEndpoint)}" style="width:100%;" />
+        <input type="text" class="inline-input" id="ollama-model" placeholder="llama3" value="${escapeHtml(ollamaModel)}" style="width:100%;" />
+      </div>
+      <div class="key-row-actions">
+        <button class="btn-primary btn-sm" id="save-ollama-btn">Save</button>
+      </div>
+    </div>
+  `;
+
+  // Bind preferred provider radio
+  panel.querySelectorAll('input[name="preferred-llm"]').forEach(radio => {
+    radio.addEventListener('change', async () => {
+      try {
+        await invoke('set_preferred_llm_provider', { providerId: radio.value });
+        showToast('Preferred provider updated', 'success');
+      } catch (e) {
+        showToast('Failed to set provider: ' + e, 'error');
+      }
+    });
+  });
+
+  // Bind test buttons
+  panel.querySelectorAll('[data-test-llm]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const providerId = btn.dataset.testLlm;
+      btn.disabled = true;
+      btn.textContent = 'Testing\u2026';
+      try {
+        await invoke('test_llm_provider', { providerId });
+        showToast(`${providerId} is working`, 'success');
+      } catch (e) {
+        showToast(`${providerId} test failed: ${e}`, 'error');
+      }
+      btn.disabled = false;
+      btn.textContent = 'Test';
+    });
+  });
+
+  // Bind Ollama save
+  document.getElementById('save-ollama-btn')?.addEventListener('click', async () => {
+    const endpoint = document.getElementById('ollama-endpoint')?.value.trim();
+    const model = document.getElementById('ollama-model')?.value.trim() || null;
+    if (!endpoint) return;
+    try {
+      await invoke('save_ollama_endpoint', { endpoint, model });
+      showToast('Ollama settings saved', 'success');
+    } catch (e) {
+      showToast('Failed to save Ollama settings: ' + e, 'error');
+    }
+  });
 }
 
 function renderAboutSection(panel) {

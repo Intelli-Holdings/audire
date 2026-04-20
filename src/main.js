@@ -14,6 +14,7 @@ import { initMyNotesView, renderMyNotesView } from './views/mynotes.js';
 import { initSharedView, renderSharedView } from './views/shared.js';
 import { initChatView, renderChatView } from './views/chat.js';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 // ---- App State ----
 // Single shared state object passed by reference to all modules
@@ -207,6 +208,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Default view
   showView('home');
 
+  // ---- Detection system ----
+  // Listen for meeting-about-to-start prompts from the background detector
+  listen('detection://prompt', (event) => {
+    showDetectionPrompt(event.payload);
+  });
+
+  // Start the background detection loop
+  invoke('start_detector').catch(e => {
+    console.warn('Failed to start detector:', e);
+  });
+
   // Global error boundary for unhandled IPC failures
   window.addEventListener('unhandledrejection', e => {
     const msg = e.reason?.toString() || '';
@@ -215,3 +227,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+// ---- Detection Prompt UI ----
+
+function showDetectionPrompt(payload) {
+  // Remove any existing prompt
+  document.querySelector('.detection-prompt')?.remove();
+
+  const { external_id, provider, title, start, attendees } = payload;
+  const startDate = new Date(start.length === 10 ? start + 'T00:00:00' : start);
+  const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const el = document.createElement('div');
+  el.className = 'detection-prompt';
+  el.innerHTML = `
+    <div class="detection-prompt-title">Meeting starting soon</div>
+    <div class="detection-prompt-event">${escapeHtmlSimple(title)}</div>
+    <div class="detection-prompt-time">${escapeHtmlSimple(timeStr)}</div>
+    <div class="detection-prompt-actions">
+      <button class="btn-primary btn-sm" data-action="accept">Record</button>
+      <button class="btn-ghost btn-sm" data-action="dismiss">Dismiss</button>
+    </div>
+  `;
+
+  el.querySelector('[data-action="accept"]').addEventListener('click', async () => {
+    try {
+      await invoke('respond_to_detection_prompt', {
+        externalId: external_id,
+        provider,
+        action: 'accept',
+        attendees: attendees || null,
+      });
+      el.remove();
+      showToast('Recording started', 'success');
+    } catch (e) {
+      showToast('Failed to start recording: ' + e, 'error');
+    }
+  });
+
+  el.querySelector('[data-action="dismiss"]').addEventListener('click', async () => {
+    try {
+      await invoke('respond_to_detection_prompt', {
+        externalId: external_id,
+        provider,
+        action: 'dismiss',
+        attendees: null,
+      });
+    } catch { /* ignore */ }
+    el.remove();
+  });
+
+  document.body.appendChild(el);
+
+  // Auto-dismiss after 5 minutes
+  setTimeout(() => {
+    if (el.parentNode) {
+      invoke('respond_to_detection_prompt', {
+        externalId: external_id,
+        provider,
+        action: 'expired',
+        attendees: null,
+      }).catch(() => {});
+      el.remove();
+    }
+  }, 5 * 60 * 1000);
+}
+
+function escapeHtmlSimple(str) {
+  const d = document.createElement('div');
+  d.textContent = str ?? '';
+  return d.innerHTML;
+}

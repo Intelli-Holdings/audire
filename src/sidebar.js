@@ -46,7 +46,8 @@ export async function autoSelectProvider() {
 }
 
 // Start a new capture session (called from home view or titlebar)
-export async function startCapture() {
+// If calendarEvent is provided, attendees are auto-imported into people/companies.
+export async function startCapture(calendarEvent = null) {
   if (appState.isCapturing) return;
 
   const provider = await autoSelectProvider();
@@ -63,6 +64,28 @@ export async function startCapture() {
     appState.captureStartedAt = Date.now();
     appState.finals.length = 0;
     appState.partialText = '';
+
+    // Auto-import attendees from calendar event
+    if (calendarEvent && calendarEvent.attendees && calendarEvent.attendees.length > 0) {
+      try {
+        await invoke('import_event_attendees', {
+          meetingId: resp.meeting_id,
+          attendees: calendarEvent.attendees,
+        });
+      } catch (e) {
+        console.warn('Failed to import calendar attendees:', e);
+      }
+      // Set meeting title from calendar event
+      if (calendarEvent.title) {
+        try {
+          await invoke('update_meeting_title', {
+            meetingId: resp.meeting_id,
+            title: calendarEvent.title,
+          });
+        } catch { /* non-critical */ }
+      }
+    }
+
     showToast('Recording started', 'success');
     showView('transcript');
   } catch (err) {

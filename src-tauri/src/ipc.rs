@@ -7,9 +7,9 @@ use crate::llm::provider::LlmProviderInfo;
 use crate::services::{calendar, folders, keys, meeting_notes, retrieval};
 use crate::state::{AppState, CaptureHandle, SessionContext};
 use crate::store::db::{
-    CalendarConfigRow, DetectionCalendarPromptRow, DetectionSettingsRow, FolderRow,
-    MeetingDetailRow, MeetingWithNotes, NoteRow, OrgSharedKeyStatusRow, OrganizationRow,
-    ParticipantRow, SegmentRow, StandaloneNoteRow, StructuredMeetingNote,
+    CalendarConfigRow, DetectionCalendarPromptRow, DetectionSettingsRow, EventAttendee,
+    FolderRow, MeetingDetailRow, MeetingWithNotes, NoteRow, OrgSharedKeyStatusRow,
+    OrganizationRow, ParticipantRow, SegmentRow, StandaloneNoteRow, StructuredMeetingNote,
     UpcomingCalendarEventRow,
 };
 
@@ -693,6 +693,17 @@ pub fn list_organizations(state: tauri::State<'_, AppState>) -> Result<Vec<Organ
     state.store.list_organizations()
 }
 
+// ---- Auto-populate People & Companies from Calendar Attendees ----
+
+#[tauri::command]
+pub fn import_event_attendees(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    attendees: Vec<EventAttendee>,
+) -> Result<()> {
+    state.store.import_event_attendees(&meeting_id, &attendees)
+}
+
 // ---- LLM Provider Management ----
 
 #[tauri::command]
@@ -765,6 +776,7 @@ pub fn respond_to_detection_prompt(
     external_id: String,
     provider: String,
     action: String,
+    attendees: Option<Vec<EventAttendee>>,
 ) -> Result<Option<String>> {
     match action.as_str() {
         "accept" => {
@@ -786,6 +798,11 @@ pub fn respond_to_detection_prompt(
                 state
                     .store
                     .create_meeting_with_calendar(actual_provider, &external_id, &provider)?;
+
+            // Auto-populate people & companies from calendar attendees
+            if let Some(ref att) = attendees {
+                let _ = state.store.import_event_attendees(&meeting_id, att);
+            }
 
             // Mark prompt as accepted
             state.store.update_detection_prompt_action(
@@ -867,4 +884,35 @@ pub fn respond_to_detection_prompt(
         }
         _ => Err(ParaError::Other(format!("Invalid action: {}", action))),
     }
+}
+
+// ---- Detector Lifecycle ----
+
+#[tauri::command]
+pub fn start_detector(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<()> {
+    let mut guard = lock_mutex(&state.detector)?;
+    if guard.is_some() {
+        return Ok(()); // Already running
+    }
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let store = state.store.clone();
+    let keyvault = state.keyvault.clone();
+    let app_handle = app.clone();
+
+    state.rt.spawn(async move {
+        crate::services::detection::run_detection_loop(app_handle, store, keyvault, stop_rx).await;
+    });
+
+    *guard = Some(crate::state::DetectorHandle { stop: stop_tx });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_detector(state: tauri::State<'_, AppState>) -> Result<()> {
+    let mut guard = lock_mutex(&state.detector)?;
+    if let Some(handle) = guard.take() {
+        let _ = handle.stop.send(());
+    }
+    Ok(())
 }
