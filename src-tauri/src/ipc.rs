@@ -3,12 +3,14 @@ use tauri::{Emitter, Manager};
 use crate::asr;
 use crate::error::{ParaError, Result};
 use crate::llm::recipe;
+use crate::llm::provider::LlmProviderInfo;
 use crate::services::{calendar, folders, keys, meeting_notes, retrieval};
 use crate::state::{AppState, CaptureHandle, SessionContext};
 use crate::store::db::{
-    CalendarConfigRow, FolderRow, MeetingDetailRow, MeetingWithNotes, NoteRow,
-    OrgSharedKeyStatusRow, OrganizationRow, ParticipantRow, SegmentRow, StandaloneNoteRow,
-    StructuredMeetingNote, UpcomingCalendarEventRow,
+    CalendarConfigRow, DetectionCalendarPromptRow, DetectionSettingsRow, FolderRow,
+    MeetingDetailRow, MeetingWithNotes, NoteRow, OrgSharedKeyStatusRow, OrganizationRow,
+    ParticipantRow, SegmentRow, StandaloneNoteRow, StructuredMeetingNote,
+    UpcomingCalendarEventRow,
 };
 
 use serde::Serialize;
@@ -275,7 +277,7 @@ pub struct SessionContextResp {
 
 // ---- API key management ----
 
-const ALLOWED_PROVIDERS: &[&str] = &["deepgram", "assemblyai", "openai", "anthropic"];
+const ALLOWED_PROVIDERS: &[&str] = &["deepgram", "assemblyai", "openai", "anthropic", "gemini"];
 
 /// IPC: save_api_key { provider, key }
 /// Stores a provider API key in the OS keyring.
@@ -689,4 +691,180 @@ pub fn add_organization(
 #[tauri::command]
 pub fn list_organizations(state: tauri::State<'_, AppState>) -> Result<Vec<OrganizationRow>> {
     state.store.list_organizations()
+}
+
+// ---- LLM Provider Management ----
+
+#[tauri::command]
+pub fn list_llm_providers(state: tauri::State<'_, AppState>) -> Vec<LlmProviderInfo> {
+    state.llm_registry.list(&state.keyvault)
+}
+
+#[tauri::command]
+pub fn set_preferred_llm_provider(
+    state: tauri::State<'_, AppState>,
+    provider_id: String,
+) -> Result<()> {
+    let mut settings = state.store.get_detection_settings()?;
+    settings.preferred_llm_provider = provider_id;
+    state.store.update_detection_settings(&settings)
+}
+
+#[tauri::command]
+pub fn save_ollama_endpoint(
+    state: tauri::State<'_, AppState>,
+    endpoint: String,
+    model: Option<String>,
+) -> Result<()> {
+    let mut settings = state.store.get_detection_settings()?;
+    settings.ollama_endpoint = endpoint;
+    if let Some(m) = model {
+        settings.ollama_model = m;
+    }
+    state.store.update_detection_settings(&settings)
+}
+
+#[tauri::command]
+pub async fn test_llm_provider(
+    state: tauri::State<'_, AppState>,
+    provider_id: String,
+) -> Result<String> {
+    state
+        .llm_registry
+        .test_provider(&state.keyvault, &provider_id)
+        .await
+        .map_err(|e| ParaError::Other(e))
+}
+
+// ---- Detection Settings ----
+
+#[tauri::command]
+pub fn get_detection_settings(state: tauri::State<'_, AppState>) -> Result<DetectionSettingsRow> {
+    state.store.get_detection_settings()
+}
+
+#[tauri::command]
+pub fn update_detection_settings(
+    state: tauri::State<'_, AppState>,
+    settings: DetectionSettingsRow,
+) -> Result<()> {
+    state.store.update_detection_settings(&settings)
+}
+
+#[tauri::command]
+pub fn list_detection_prompts(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<DetectionCalendarPromptRow>> {
+    state.store.list_detection_prompts()
+}
+
+#[tauri::command]
+pub fn respond_to_detection_prompt(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    external_id: String,
+    provider: String,
+    action: String,
+) -> Result<Option<String>> {
+    match action.as_str() {
+        "accept" => {
+            // Start capture for this meeting
+            let asr_provider = "assemblyai".to_string(); // default ASR
+            let asr_key = state
+                .keyvault
+                .get_provider_key(&asr_provider)
+                .or_else(|| state.keyvault.get_provider_key("deepgram"))
+                .ok_or_else(|| ParaError::MissingKey("No ASR key configured".into()))?;
+
+            let actual_provider = if state.keyvault.has_provider_key("assemblyai") {
+                "assemblyai"
+            } else {
+                "deepgram"
+            };
+
+            let meeting_id =
+                state
+                    .store
+                    .create_meeting_with_calendar(actual_provider, &external_id, &provider)?;
+
+            // Mark prompt as accepted
+            state.store.update_detection_prompt_action(
+                &external_id,
+                &provider,
+                "accepted",
+                Some(&meeting_id),
+            )?;
+
+            // Start capture pipeline
+            let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+            let config = crate::asr::CaptureConfig {
+                provider: actual_provider.to_string(),
+                include_mic: true,
+                mode: "system".into(),
+                target_process: None,
+            };
+
+            let mid = meeting_id.clone();
+            let store = state.store.clone();
+            let app_handle = app.clone();
+
+            state.rt.spawn(async move {
+                let _ = app_handle.emit(
+                    "asr:status",
+                    serde_json::json!({ "status": "starting pipeline" }),
+                );
+
+                let run_result = crate::asr::run_pipeline(
+                    app_handle.clone(),
+                    store.clone(),
+                    mid.clone(),
+                    config,
+                    asr_key,
+                    stop_rx,
+                )
+                .await;
+
+                if let Err(e) = run_result {
+                    let _ = store.end_meeting(&mid);
+                    let _ = app_handle.emit(
+                        "asr:status",
+                        serde_json::json!({ "status": format!("pipeline error: {}", e) }),
+                    );
+                    let _ = app_handle.emit(
+                        "asr:lifecycle",
+                        serde_json::json!({
+                            "state": "error",
+                            "meeting_id": mid.clone(),
+                            "message": e.to_string(),
+                        }),
+                    );
+                }
+
+                let managed_state = app_handle.state::<AppState>();
+                if let Ok(mut capture) = managed_state.capture.lock() {
+                    if capture.as_ref().map(|h| h.meeting_id.as_str()) == Some(mid.as_str()) {
+                        capture.take();
+                    }
+                };
+            });
+
+            let mut guard = lock_mutex(&state.capture)?;
+            *guard = Some(CaptureHandle {
+                meeting_id: meeting_id.clone(),
+                stop: stop_tx,
+            });
+
+            Ok(Some(meeting_id))
+        }
+        "dismiss" | "expired" => {
+            state.store.update_detection_prompt_action(
+                &external_id,
+                &provider,
+                &action,
+                None,
+            )?;
+            Ok(None)
+        }
+        _ => Err(ParaError::Other(format!("Invalid action: {}", action))),
+    }
 }

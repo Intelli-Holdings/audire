@@ -1207,6 +1207,179 @@ impl LocalStore {
         Ok(())
     }
 
+    // ---- Detection Settings ----
+
+    pub fn get_detection_settings(&self) -> Result<DetectionSettingsRow> {
+        let conn = self.inner.lock().unwrap();
+        conn.query_row(
+            "SELECT calendar_detection_enabled, audio_detection_enabled,
+                    calendar_lead_minutes, audio_silence_threshold_minutes,
+                    auto_stop_enabled, preferred_llm_provider,
+                    ollama_endpoint, ollama_model, updated_at
+             FROM detection_settings WHERE id = 1",
+            [],
+            |row| {
+                Ok(DetectionSettingsRow {
+                    calendar_detection_enabled: row.get::<_, i64>(0)? != 0,
+                    audio_detection_enabled: row.get::<_, i64>(1)? != 0,
+                    calendar_lead_minutes: row.get(2)?,
+                    audio_silence_threshold_minutes: row.get(3)?,
+                    auto_stop_enabled: row.get::<_, i64>(4)? != 0,
+                    preferred_llm_provider: row.get(5)?,
+                    ollama_endpoint: row.get(6)?,
+                    ollama_model: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))
+    }
+
+    pub fn update_detection_settings(&self, settings: &DetectionSettingsRow) -> Result<()> {
+        let now = Utc::now().timestamp();
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "UPDATE detection_settings SET
+                calendar_detection_enabled = ?1,
+                audio_detection_enabled = ?2,
+                calendar_lead_minutes = ?3,
+                audio_silence_threshold_minutes = ?4,
+                auto_stop_enabled = ?5,
+                preferred_llm_provider = ?6,
+                ollama_endpoint = ?7,
+                ollama_model = ?8,
+                updated_at = ?9
+             WHERE id = 1",
+            params![
+                settings.calendar_detection_enabled as i64,
+                settings.audio_detection_enabled as i64,
+                settings.calendar_lead_minutes,
+                settings.audio_silence_threshold_minutes,
+                settings.auto_stop_enabled as i64,
+                settings.preferred_llm_provider,
+                settings.ollama_endpoint,
+                settings.ollama_model,
+                now,
+            ],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    // ---- Detection Calendar Prompts ----
+
+    pub fn upsert_detection_prompt(
+        &self,
+        external_id: &str,
+        provider: &str,
+        event_title: &str,
+        event_start: &str,
+        event_end: &str,
+    ) -> Result<()> {
+        let now = Utc::now().timestamp();
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "INSERT INTO detection_calendar_prompts(external_id, provider, event_title, event_start, event_end, prompted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(external_id, provider) DO UPDATE SET
+                event_title = excluded.event_title,
+                event_start = excluded.event_start,
+                event_end = excluded.event_end,
+                prompted_at = excluded.prompted_at",
+            params![external_id, provider, event_title, event_start, event_end, now],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn update_detection_prompt_action(
+        &self,
+        external_id: &str,
+        provider: &str,
+        action: &str,
+        meeting_id: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "UPDATE detection_calendar_prompts SET action = ?3, meeting_id = ?4
+             WHERE external_id = ?1 AND provider = ?2",
+            params![external_id, provider, action, meeting_id],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn get_detection_prompt(
+        &self,
+        external_id: &str,
+        provider: &str,
+    ) -> Result<Option<DetectionCalendarPromptRow>> {
+        let conn = self.inner.lock().unwrap();
+        conn.query_row(
+            "SELECT external_id, provider, event_title, event_start, event_end, prompted_at, action, meeting_id
+             FROM detection_calendar_prompts WHERE external_id = ?1 AND provider = ?2",
+            params![external_id, provider],
+            |row| {
+                Ok(DetectionCalendarPromptRow {
+                    external_id: row.get(0)?,
+                    provider: row.get(1)?,
+                    event_title: row.get(2)?,
+                    event_start: row.get(3)?,
+                    event_end: row.get(4)?,
+                    prompted_at: row.get(5)?,
+                    action: row.get(6)?,
+                    meeting_id: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| ParaError::Db(e.to_string()))
+    }
+
+    pub fn list_detection_prompts(&self) -> Result<Vec<DetectionCalendarPromptRow>> {
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT external_id, provider, event_title, event_start, event_end, prompted_at, action, meeting_id
+                 FROM detection_calendar_prompts ORDER BY prompted_at DESC LIMIT 50",
+            )
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(DetectionCalendarPromptRow {
+                    external_id: row.get(0)?,
+                    provider: row.get(1)?,
+                    event_title: row.get(2)?,
+                    event_start: row.get(3)?,
+                    event_end: row.get(4)?,
+                    prompted_at: row.get(5)?,
+                    action: row.get(6)?,
+                    meeting_id: row.get(7)?,
+                })
+            })
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| ParaError::Db(e.to_string()))
+    }
+
+    pub fn create_meeting_with_calendar(
+        &self,
+        provider: &str,
+        calendar_external_id: &str,
+        calendar_provider: &str,
+    ) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp();
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "INSERT INTO meetings(id, provider, started_at, calendar_external_id, calendar_provider)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, provider, now, calendar_external_id, calendar_provider],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(id)
+    }
+
     // ---- Retrieval ----
 
     pub fn search_segments_global(
@@ -1947,6 +2120,33 @@ pub struct SessionContextRow {
     pub updated_at: i64,
 }
 
+// ---- Detection types ----
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectionSettingsRow {
+    pub calendar_detection_enabled: bool,
+    pub audio_detection_enabled: bool,
+    pub calendar_lead_minutes: i64,
+    pub audio_silence_threshold_minutes: i64,
+    pub auto_stop_enabled: bool,
+    pub preferred_llm_provider: String,
+    pub ollama_endpoint: String,
+    pub ollama_model: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectionCalendarPromptRow {
+    pub external_id: String,
+    pub provider: String,
+    pub event_title: String,
+    pub event_start: String,
+    pub event_end: String,
+    pub prompted_at: i64,
+    pub action: String,
+    pub meeting_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SegmentSearchHit {
     pub meeting_id: String,
@@ -2286,6 +2486,58 @@ fn migrate(conn: &Connection) -> Result<()> {
         "description",
         "ALTER TABLE folders ADD COLUMN description TEXT",
     )?;
+
+    // Detection tables for automatic meeting detection
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS detection_calendar_prompts(
+            external_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            event_title TEXT NOT NULL,
+            event_start TEXT NOT NULL,
+            event_end TEXT NOT NULL,
+            prompted_at INTEGER NOT NULL,
+            action TEXT NOT NULL DEFAULT 'pending',
+            meeting_id TEXT,
+            PRIMARY KEY(external_id, provider)
+        );
+
+        CREATE TABLE IF NOT EXISTS detection_settings(
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            calendar_detection_enabled INTEGER NOT NULL DEFAULT 1,
+            audio_detection_enabled INTEGER NOT NULL DEFAULT 0,
+            calendar_lead_minutes INTEGER NOT NULL DEFAULT 2,
+            audio_silence_threshold_minutes INTEGER NOT NULL DEFAULT 15,
+            auto_stop_enabled INTEGER NOT NULL DEFAULT 1,
+            preferred_llm_provider TEXT NOT NULL DEFAULT 'anthropic',
+            ollama_endpoint TEXT NOT NULL DEFAULT 'http://localhost:11434',
+            ollama_model TEXT NOT NULL DEFAULT 'llama3.2',
+            updated_at INTEGER NOT NULL
+        );
+    "#,
+    )
+    .map_err(|e| ParaError::Db(e.to_string()))?;
+
+    // Calendar linkage columns on meetings
+    ensure_column(
+        conn,
+        "meetings",
+        "calendar_external_id",
+        "ALTER TABLE meetings ADD COLUMN calendar_external_id TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "meetings",
+        "calendar_provider",
+        "ALTER TABLE meetings ADD COLUMN calendar_provider TEXT",
+    )?;
+
+    // Seed default detection_settings row if not present
+    conn.execute(
+        "INSERT OR IGNORE INTO detection_settings(id, updated_at) VALUES (1, ?1)",
+        params![Utc::now().timestamp()],
+    )
+    .map_err(|e| ParaError::Db(e.to_string()))?;
 
     // FTS5 virtual table + triggers (best effort).
     // If FTS5 is not available in the bundled build, queries fall back to LIKE.

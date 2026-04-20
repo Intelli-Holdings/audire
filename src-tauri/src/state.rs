@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use crate::error::{ParaError, Result};
 use crate::keyvault::vault::KeyVault;
+use crate::llm::provider::LlmRegistry;
 use crate::store::db::{LocalStore, SessionContextRow};
 
 use tokio::runtime::Runtime;
@@ -14,6 +15,15 @@ pub struct AppState {
     pub rt: Runtime,
     /// One active capture session at a time (simplifies state).
     pub capture: Mutex<Option<CaptureHandle>>,
+    /// Multi-provider LLM registry for runtime dispatch.
+    pub llm_registry: LlmRegistry,
+    /// Handle for the background meeting detector task.
+    pub detector: Mutex<Option<DetectorHandle>>,
+}
+
+/// Handle to stop the background detection loop.
+pub struct DetectorHandle {
+    pub stop: tokio::sync::oneshot::Sender<()>,
 }
 
 pub struct CaptureHandle {
@@ -39,8 +49,11 @@ impl AppState {
             .map_err(|e| ParaError::Db(e.to_string()))?;
         let session = SessionContext::from(store.get_session_context()?);
 
+        // Build LLM registry with all compiled providers
+        let llm_registry = crate::llm::build_registry(store.clone());
+
         // Tokio runtime tuned for desktop app (bounded memory, low overhead).
-        // - worker_threads=2: sufficient for ASR websocket + audio pump
+        // - worker_threads=2: sufficient for ASR websocket + audio pump + detector
         // - thread_stack_size=512KiB: reduce idle RSS; no deep recursion needed
         // Reference: https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -56,6 +69,8 @@ impl AppState {
             session: Mutex::new(session),
             rt,
             capture: Mutex::new(None),
+            llm_registry,
+            detector: Mutex::new(None),
         })
     }
 }
