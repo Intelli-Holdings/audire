@@ -45,6 +45,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 directories = "5"
 
+# Async traits for LLM provider abstraction
+async-trait = "0.1"
+
 # Async + websockets (Rustls for portability, no OpenSSL at runtime)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
