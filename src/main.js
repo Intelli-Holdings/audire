@@ -132,6 +132,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('user-card-btn')
     ?.addEventListener('click', () => showView('settings'));
 
+  // Sidebar collapse + floating restore button
+  const SIDEBAR_COLLAPSED_KEY = 'audire.sidebar.collapsed';
+  const sidebarEl = document.getElementById('sidebar');
+  const sidebarCollapseBtn = document.getElementById('sidebar-collapse-btn');
+  const sidebarRestoreBtn = document.getElementById('sidebarRestoreBtn');
+
+  function setSidebarCollapsed(collapsed) {
+    if (!sidebarEl) return;
+    sidebarEl.classList.toggle('collapsed', collapsed);
+    document.body.classList.toggle('sidebar-hidden', collapsed);
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch { /* ignore */ }
+  }
+
+  sidebarCollapseBtn?.addEventListener('click', () => setSidebarCollapsed(true));
+  sidebarRestoreBtn?.addEventListener('click', () => setSidebarCollapsed(false));
+
+  try {
+    setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+  } catch {
+    setSidebarCollapsed(false);
+  }
+
   // Titlebar nav buttons
   document.getElementById('nav-back-btn')
     ?.addEventListener('click', navigateBack);
