@@ -297,8 +297,8 @@ async function renderMeetingDetail() {
               id="capture-resume-btn"
               data-capture-state="${appState.isCapturing ? 'recording' : (meetingSegments.length || appState.finals.length ? 'paused' : 'idle')}">
         ${appState.isCapturing
-          ? '<span class="capture-dot" aria-hidden="true"></span> Stop'
-          : ((meetingSegments.length || appState.finals.length) ? 'Resume' : 'Start recording')}
+          ? '<span class="capture-dot" aria-hidden="true"></span> Stop recording'
+          : ((meetingSegments.length || appState.finals.length) ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume recording' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg> Start recording')}
       </button>
       <input type="text" class="ask-input" id="transcript-ask-input" placeholder="Ask anything" style="flex:1;" />
       <button class="recipe-shortcut-btn" id="transcript-recipe-btn">/ List recent todos</button>

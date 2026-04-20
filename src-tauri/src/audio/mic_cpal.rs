@@ -4,6 +4,8 @@ use crate::error::{ParaError, Result};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{traits::Producer, HeapCons};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Wrapper to make cpal::Stream Send.
 /// Safety: cpal::Stream is a handle to the platform audio system. The actual
@@ -52,10 +54,21 @@ pub fn start_mic_capture(seconds_ring: u32) -> Result<MicCapture> {
         eprintln!("[audire] cpal mic stream error: {}", err);
     };
 
+    let sample_counter = Arc::new(AtomicU64::new(0));
+    let counter_cb = sample_counter.clone();
+
     let stream = match supported.sample_format() {
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config,
             move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                let prev = counter_cb.fetch_add(data.len() as u64, Ordering::Relaxed);
+                // Log on first callback and then every ~5 seconds of audio.
+                // At 48kHz stereo, 5s ≈ 480,000 samples.
+                if prev == 0 {
+                    eprintln!("[audire] mic callback: first {} samples received", data.len());
+                } else if prev / 480_000 != (prev + data.len() as u64) / 480_000 {
+                    eprintln!("[audire] mic callback: total {} samples pushed", prev + data.len() as u64);
+                }
                 for &s in data {
                     let _ = prod.try_push(s);
                 }
@@ -110,10 +123,19 @@ fn start_mic_capture_f32(
         eprintln!("[audire] cpal mic stream error: {}", err);
     };
 
+    let sample_counter = Arc::new(AtomicU64::new(0));
+    let counter_cb = sample_counter.clone();
+
     let stream = device
         .build_input_stream(
             config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                let prev = counter_cb.fetch_add(data.len() as u64, Ordering::Relaxed);
+                if prev == 0 {
+                    eprintln!("[audire] mic callback (f32): first {} samples received", data.len());
+                } else if prev / 480_000 != (prev + data.len() as u64) / 480_000 {
+                    eprintln!("[audire] mic callback (f32): total {} samples pushed", prev + data.len() as u64);
+                }
                 for &s in data {
                     let v = (s * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                     let _ = prod.try_push(v);

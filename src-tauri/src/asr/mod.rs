@@ -289,7 +289,15 @@ fn spawn_audio_sender(
         let mut scratch_sys = Vec::<i16>::with_capacity(48_000);
         let ws_tx = ws_tx;
         let mut first_frame_logged = false;
-        let mut empty_logged = false;
+
+        // Accumulation buffer: downsampled 16kHz samples persist across loop
+        // iterations so partial chunks (<1600 samples) are not discarded.
+        let mut pending_16k = Vec::<i16>::with_capacity(4800);
+
+        // Empty-state tracking: log only on transitions to avoid spam.
+        let mut was_empty = false;
+        let mut empty_since: Option<std::time::Instant> = None;
+
         // Pre-built 100ms of silence at 16kHz mono pcm_s16le = 1600 samples × 2 bytes
         // (3200 bytes). Sent as keep-alive when both buffers are empty so
         // AssemblyAI/Deepgram do not terminate the session on apparent inactivity
@@ -298,6 +306,8 @@ fn spawn_audio_sender(
         let mut last_send_at = std::time::Instant::now();
         // Emit silence every ~200ms of real-time silence.
         let keepalive_interval = std::time::Duration::from_millis(200);
+
+        let mut total_frames_sent: u64 = 0;
 
         loop {
             scratch_mic.clear();
@@ -326,9 +336,11 @@ fn spawn_audio_sender(
             }
 
             if scratch_mic.is_empty() && scratch_sys.is_empty() {
-                if !empty_logged {
-                    eprintln!("[asr] audio sender: both mic and sys buffers empty (will keep polling + silence keep-alive)");
-                    empty_logged = true;
+                // Log only on transition to empty (not every iteration).
+                if !was_empty {
+                    eprintln!("[asr] audio sender: both buffers empty, sending silence keep-alive");
+                    was_empty = true;
+                    empty_since = Some(std::time::Instant::now());
                 }
 
                 // Silence keep-alive: prevents providers from terminating a session
@@ -343,8 +355,6 @@ fn spawn_audio_sender(
                         eprintln!("[asr] audio sender: ws_tx send failed during keep-alive, exiting");
                         return;
                     }
-                    // Also emit a zero audio level so the UI shows "Listening..."
-                    // instead of a stale level.
                     let _ = app.emit(
                         "asr:audio_level",
                         serde_json::json!({ "level": 0.0f32 }),
@@ -355,8 +365,16 @@ fn spawn_audio_sender(
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
             }
-            // Reset empty flag once we get data
-            empty_logged = false;
+
+            // Log transition from empty → data (with duration summary).
+            if was_empty {
+                let gap_ms = empty_since
+                    .map(|t| t.elapsed().as_millis())
+                    .unwrap_or(0);
+                eprintln!("[asr] audio resumed after {}ms empty", gap_ms);
+                was_empty = false;
+                empty_since = None;
+            }
 
             let mic_fmt = mic.as_ref().map(|m| m.fmt);
             let sys_fmt = sys.as_ref().map(|s| s.fmt);
@@ -381,6 +399,7 @@ fn spawn_audio_sender(
                 continue;
             }
 
+            // Compute audio level from pre-downsampled data.
             let level = compute_audio_level(&mono_48k);
             let _ = app.emit(
                 "asr:audio_level",
@@ -400,18 +419,36 @@ fn spawn_audio_sender(
                 }
             };
 
-            let frames = audio::resample::frame_16k_100ms(&mono_16k);
-            for frame in &frames {
+            // Append to persistent accumulation buffer (fixes the core bug:
+            // each iteration yields ~160 samples at 16kHz, but a frame needs
+            // 1600. Without accumulation, remainders were silently discarded).
+            pending_16k.extend_from_slice(&mono_16k);
+
+            // Consume complete 1600-sample frames from the accumulation buffer.
+            const FRAME_SAMPLES: usize = 1600; // 100ms @ 16kHz
+            while pending_16k.len() >= FRAME_SAMPLES {
+                let frame_samples: Vec<i16> = pending_16k.drain(..FRAME_SAMPLES).collect();
+                let mut frame_bytes = Vec::with_capacity(FRAME_SAMPLES * 2);
+                for s in &frame_samples {
+                    frame_bytes.extend_from_slice(&s.to_le_bytes());
+                }
+
                 if !first_frame_logged {
-                    eprintln!("[asr] first audio frame sent to WSS: {} bytes", frame.len());
+                    eprintln!("[asr] first audio frame sent to WSS: {} bytes (pending_16k had {} samples)",
+                        frame_bytes.len(), frame_samples.len() + pending_16k.len());
                     first_frame_logged = true;
                 }
-                if ws_tx.send(Message::Binary(frame.clone().into())).await.is_err() {
+                total_frames_sent += 1;
+                if total_frames_sent % 100 == 0 {
+                    eprintln!("[asr] audio sender: {} frames sent (10s of audio)", total_frames_sent);
+                }
+                if ws_tx.send(Message::Binary(frame_bytes.into())).await.is_err() {
                     eprintln!("[asr] audio sender: ws_tx send failed, exiting");
                     return;
                 }
                 last_send_at = std::time::Instant::now();
             }
+            // Unconsumed remainder stays in pending_16k for next iteration.
         }
     })
 }

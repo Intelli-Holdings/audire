@@ -84,6 +84,9 @@ pub fn start_capture(
 
                 // Read loop: pull bytes from device, convert float32 → i16, push to ring.
                 let mut buf = std::collections::VecDeque::<u8>::with_capacity(256 * 1024);
+                let mut total_samples_pushed: u64 = 0;
+                let mut last_log_time = std::time::Instant::now();
+                let mut first_logged = false;
 
                 while !stop_flag_thread.load(Ordering::Relaxed) {
                     if h_event.wait_for_event(500).is_err() {
@@ -112,6 +115,17 @@ pub fn start_capture(
                         // Backpressure: if ring is full, oldest samples are dropped (try_push).
                         // This is intentional — prefer continuity over RAM growth.
                         let _ = prod.try_push(s);
+                        total_samples_pushed += 1;
+                    }
+
+                    // Periodic diagnostic logging.
+                    if !first_logged && total_samples_pushed > 0 {
+                        eprintln!("[audire] WASAPI: first samples pushed (total: {})", total_samples_pushed);
+                        first_logged = true;
+                        last_log_time = std::time::Instant::now();
+                    } else if last_log_time.elapsed() >= std::time::Duration::from_secs(5) {
+                        eprintln!("[audire] WASAPI: pushed {} samples total", total_samples_pushed);
+                        last_log_time = std::time::Instant::now();
                     }
                 }
 

@@ -2203,6 +2203,13 @@ select:focus:not(:focus-visible) {
 .capture-resume-btn.is-idle {
   color: var(--color-brand-500);
 }
+.capture-resume-btn.is-paused {
+  color: var(--color-brand-500);
+}
+.capture-resume-btn.is-paused:hover {
+  color: var(--color-brand-400);
+  background: rgba(126, 184, 90, 0.08);
+}
 .capture-resume-btn .capture-dot {
   display: inline-block;
   width: 8px;
@@ -2431,6 +2438,21 @@ body.sidebar-hidden .sidebar-restore-btn {
 .chat-send-icon.has-text {
   border-color: var(--color-brand-500);
   color: var(--color-brand-500);
+}
+.chat-send-icon.is-listening {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+.chat-send-icon.is-listening .chat-send-mic {
+  display: block;
+}
+.chat-send-icon.is-listening .chat-send-arrow {
+  display: none;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(255, 107, 107, 0); }
 }
 
 /* Sections + recents + recipe chips with colored icons */

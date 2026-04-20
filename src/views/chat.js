@@ -5,6 +5,8 @@ import { showToast } from '../toast.js';
 
 let appState = null;
 let chatHistory = [];
+let recognition = null;
+let isListening = false;
 
 function escapeHtml(str) {
   const d = document.createElement('div');
@@ -214,10 +216,76 @@ export async function renderChatView() {
     if (sendBtn.classList.contains('has-text')) {
       await sendQuery();
     } else {
-      // Mic mode placeholder — voice-to-text not yet wired up in chat.
-      showToast('Voice input coming soon', 'info');
+      toggleVoiceInput(chatInput, sendBtn, syncSendIcon);
     }
   });
+}
+
+function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
+  if (isListening && recognition) {
+    recognition.stop();
+    return;
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showToast('Speech recognition is not supported in this browser', 'error');
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  // Track what was in the textarea before we started, and accumulate finals.
+  const baseline = chatInput?.value || '';
+  let accumulated = '';
+
+  recognition.onstart = () => {
+    isListening = true;
+    sendBtn?.classList.add('is-listening');
+    sendBtn?.setAttribute('aria-label', 'Stop voice input');
+  };
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    accumulated = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        accumulated += transcript;
+      } else {
+        interim += transcript;
+      }
+    }
+    if (chatInput) {
+      chatInput.value = baseline + accumulated + interim;
+      syncSendIcon();
+    }
+  };
+
+  recognition.onerror = (event) => {
+    if (event.error !== 'aborted') {
+      showToast('Mic error: ' + event.error, 'error');
+    }
+    stopListening(sendBtn);
+  };
+
+  recognition.onend = () => {
+    stopListening(sendBtn);
+    syncSendIcon();
+    chatInput?.focus();
+  };
+
+  recognition.start();
+}
+
+function stopListening(sendBtn) {
+  isListening = false;
+  recognition = null;
+  sendBtn?.classList.remove('is-listening');
+  sendBtn?.setAttribute('aria-label', 'Start voice input');
 }
 
 function appendMessage(role, text) {
