@@ -22,7 +22,9 @@
       "Bash(PATH=\"/c/Strawberry/perl/bin:/c/Users/The Monarch/.cargo/bin:$PATH\" cargo check:*)",
       "Bash(chmod +x:*)",
       "Bash(bash:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(cmd:*)",
+      "Bash(cargo clean:*)"
     ]
   }
 }
