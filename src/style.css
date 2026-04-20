@@ -68,8 +68,53 @@ body {
 }
 
 .sidebar.collapsed {
-  width: var(--sidebar-collapsed-width);
-  min-width: var(--sidebar-collapsed-width);
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right-color: transparent;
+}
+
+.sidebar.collapsed > * {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Floating restore button — only visible when sidebar is hidden */
+.sidebar-restore-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: 32px;
+  height: 32px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  z-index: 120;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.sidebar-restore-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+body.sidebar-hidden .sidebar-restore-btn {
+  display: inline-flex;
+}
+
+body.sidebar-hidden .content {
+  padding-top: 0;
+}
+
+body.sidebar-hidden .chat-view {
+  padding-top: 72px;
 }
 
 .sidebar-top { flex: 1; overflow-y: auto; }
@@ -1378,29 +1423,42 @@ body {
 .recipe-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 12px;
+  gap: 8px;
+  padding: 7px 14px 7px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 20px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition), color var(--transition);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.recipe-chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+.recipe-chip:hover { background: var(--bg-hover); border-color: var(--text-muted); }
 .recipe-chip .chip-icon {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   align-items: center;
   justify-content: center;
   background: var(--accent);
   color: #1a1a1e;
-  border-radius: 4px;
-  font-size: 10px;
+  border-radius: 5px;
+  font-size: 12px;
   font-weight: 700;
+}
+.recipe-chip .chip-icon.recipe-green { background: #7eb85a; }
+.recipe-chip .chip-icon.recipe-amber { background: #c8a44e; }
+.recipe-chip .chip-icon.recipe-blue { background: #5b8def; }
+
+.recipe-chip.recipe-seeall {
+  gap: 6px;
+  padding: 7px 12px;
+  color: var(--text-secondary);
+}
+.recipe-chip.recipe-seeall svg:last-of-type {
+  margin-left: 2px;
+  color: var(--text-muted);
 }
 
 /* ---- Recipes grid ---- */
@@ -2163,38 +2221,85 @@ body.recorder-pill-window .content {
 
 /* ---- Chat view (Granola-style) ---- */
 .chat-view {
-  padding: 48px 56px;
-  max-width: 720px;
+  width: 100%;
+  min-height: 100%;
+  padding: 56px 48px 48px;
+  display: flex;
+  justify-content: center;
   animation: fadeIn 200ms ease;
 }
 
+.chat-view-inner {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
 .chat-greeting {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
-  margin-bottom: 28px;
+  text-align: center;
+  margin-bottom: 24px;
 }
 
 .chat-composer {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
   overflow: hidden;
-  margin-bottom: 32px;
+  margin-bottom: 36px;
+  box-shadow: 0 0 0 1px rgba(200, 164, 78, 0.15);
 }
 
 .chat-composer-top {
-  padding: 16px 18px 12px;
+  padding: 14px 18px 10px;
 }
 
 .chat-scope-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
+.scope-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 12px;
+  border-radius: 20px;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.scope-dropdown:hover {
+  background: var(--bg-hover);
+}
+
+.scope-dropdown-primary {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.scope-dropdown-secondary {
+  color: var(--text-secondary);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.scope-dropdown svg {
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* legacy pill styles (still referenced elsewhere) */
 .scope-pill {
   padding: 4px 12px;
   border-radius: 20px;
@@ -2225,6 +2330,10 @@ body.recorder-pill-window .content {
   outline: none;
 }
 
+.scope-folder-select.hidden {
+  display: none;
+}
+
 .chat-composer .chat-textarea {
   width: 100%;
   background: none;
@@ -2246,16 +2355,57 @@ body.recorder-pill-window .content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 18px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 8px 12px 10px;
 }
 
 .chat-composer-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.chat-attach-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.chat-attach-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 120ms ease;
+}
+
+.chat-model-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-model-pill svg {
+  color: var(--text-muted);
 }
 
 .chat-model-label {
@@ -2264,8 +2414,8 @@ body.recorder-pill-window .content {
 }
 
 .chat-send-icon {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2282,6 +2432,15 @@ body.recorder-pill-window .content {
   color: var(--text-primary);
 }
 
+.chat-send-icon .chat-send-arrow { display: none; }
+.chat-send-icon .chat-send-mic { display: block; }
+.chat-send-icon.has-text .chat-send-arrow { display: block; }
+.chat-send-icon.has-text .chat-send-mic { display: none; }
+.chat-send-icon.has-text {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .chat-response {
   margin-bottom: 24px;
 }
@@ -2291,11 +2450,9 @@ body.recorder-pill-window .content {
 }
 
 .chat-section-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--text-secondary);
   margin-bottom: 12px;
 }
 

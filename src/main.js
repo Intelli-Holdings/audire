@@ -45,6 +45,7 @@ const captureTimer = document.getElementById('captureTimer');
 const captureStopBtn = document.getElementById('captureStopBtn');
 const sidebar = document.getElementById('sidebar');
 const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+const sidebarRestoreBtn = document.getElementById('sidebarRestoreBtn');
 const sidebarFolders = document.getElementById('sidebarFolders');
 const sidebarAddFolderBtn = document.getElementById('sidebarAddFolderBtn');
 const folderModalOverlay = document.getElementById('folderModalOverlay');
@@ -209,6 +210,7 @@ function navigate(view, pushHash = true) {
 // ---- New click handlers ----
 document.getElementById('userProfile')?.addEventListener('click', () => navigate('settings'));
 sidebarCollapseBtn?.addEventListener('click', toggleSidebarCollapsed);
+sidebarRestoreBtn?.addEventListener('click', () => setSidebarCollapsed(false));
 sidebarAddFolderBtn?.addEventListener('click', openFolderModal);
 folderModalCloseBtn?.addEventListener('click', closeFolderModal);
 folderModalCancelBtn?.addEventListener('click', closeFolderModal);
@@ -282,9 +284,10 @@ function restoreFloatingCaptureBar() {
 function setSidebarCollapsed(collapsed) {
   if (!sidebar) return;
   sidebar.classList.toggle('collapsed', collapsed);
+  document.body.classList.toggle('sidebar-hidden', collapsed);
   document.documentElement.style.setProperty(
     '--sidebar-width',
-    collapsed ? '72px' : '260px',
+    collapsed ? '0px' : '260px',
   );
   try {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
@@ -1238,66 +1241,126 @@ async function renderChat() {
     }
   }
 
+  let recentMeetings = [];
+  try {
+    recentMeetings = await invoke('list_meetings');
+  } catch (e) {
+    console.error('chat recents load error:', e);
+  }
+  const recentsItems = [...(recentMeetings || [])]
+    .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
+    .slice(0, 3);
+
+  const greetingName = getChatGreetingName();
+
   content.innerHTML = `
     <div class="chat-view">
-      <h1 class="chat-greeting">Hi, ask anything</h1>
+      <div class="chat-view-inner">
+        <h1 class="chat-greeting">Hi ${escapeHtml(greetingName)}, ask anything</h1>
 
-      <div class="chat-composer">
-        <div class="chat-composer-top">
-          <div class="chat-scope-row">
-            <span class="scope-pill active" data-scope="meeting">My notes</span>
-            <span class="scope-pill" data-scope="all">All meetings</span>
-            <select class="scope-folder-select" id="askFolderSelect">
-              <option value="">All folders</option>
-              ${foldersCache.map(folder => `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`).join('')}
-            </select>
+        <div class="chat-composer">
+          <div class="chat-composer-top">
+            <div class="chat-scope-row">
+              <button class="scope-dropdown" id="chatScopeBtn" type="button">
+                <span class="scope-dropdown-primary">My notes</span>
+                <span class="scope-dropdown-secondary">All meetings</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <select class="scope-folder-select hidden" id="askFolderSelect">
+                <option value="">All folders</option>
+                ${foldersCache.map(folder => `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`).join('')}
+              </select>
+            </div>
+            <textarea class="chat-textarea" id="chatTextarea" placeholder="Summarize my meetings this week" rows="1"></textarea>
           </div>
-          <textarea class="chat-textarea" id="chatTextarea" placeholder="Summarize my meetings this week" rows="1"></textarea>
-        </div>
-        <div class="chat-composer-bottom">
-          <div class="chat-composer-meta">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
-            <span class="chat-model-label">Sonnet 4.6</span>
+          <div class="chat-composer-bottom">
+            <div class="chat-composer-meta">
+              <button class="chat-attach-btn" type="button" aria-label="Attach">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+              </button>
+              <button class="chat-model-pill" type="button">
+                <span class="chat-model-label">Sonnet 4.6</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <button class="chat-send-icon" id="chatSendBtn" type="button" aria-label="Send">
+              <svg class="chat-send-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <svg class="chat-send-mic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+            </button>
           </div>
-          <button class="chat-send-icon" id="chatSendBtn" type="button" aria-label="Send">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          </button>
         </div>
-      </div>
 
-      <div id="chatResponse" class="chat-response"></div>
+        <div id="chatResponse" class="chat-response"></div>
 
-      <div class="chat-section">
-        <h3 class="chat-section-label">Recipes</h3>
-        <div class="chat-recipes">
-          <button class="recipe-chip"><span class="chip-icon">/</span> List recent todos</button>
-          <button class="recipe-chip"><span class="chip-icon">/</span> Write weekly recap</button>
-          <button class="recipe-chip"><span class="chip-icon">/</span> Summarize meeting</button>
-          <button class="recipe-chip" onclick="window.location.hash='recipes'">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-            See all
-          </button>
+        ${recentsItems.length ? `
+        <div class="chat-section">
+          <h3 class="chat-section-label">Recents</h3>
+          <div class="chat-recents">
+            ${recentsItems.map(m => `
+              <a class="chat-recent-item" href="#meeting" data-goto-meeting="${escapeHtml(m.id)}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span class="chat-recent-title">${escapeHtml(m.title || 'Untitled')}</span>
+                <span class="chat-recent-ago">${escapeHtml(formatRelativeShort(m.started_at))}</span>
+              </a>
+            `).join('')}
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="chat-section">
+          <h3 class="chat-section-label">Recipes</h3>
+          <div class="chat-recipes">
+            <button class="recipe-chip" data-recipe="List recent todos"><span class="chip-icon recipe-green">/</span> List recent todos</button>
+            <button class="recipe-chip" data-recipe="Coach me"><span class="chip-icon recipe-amber">/</span> Coach me</button>
+            <button class="recipe-chip" data-recipe="Write weekly recap"><span class="chip-icon recipe-amber">/</span> Write weekly recap</button>
+            <button class="recipe-chip" data-recipe="Streamline my calendar"><span class="chip-icon recipe-blue">/</span> Streamline my calendar</button>
+            <button class="recipe-chip" data-recipe="Blind spots"><span class="chip-icon recipe-blue">/</span> Blind spots</button>
+            <button class="recipe-chip recipe-seeall" onclick="window.location.hash='recipes'">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+              See all
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   `;
 
-  // Scope pill toggling
-  document.querySelectorAll('.scope-pill[data-scope]').forEach(pill => {
-    pill.addEventListener('click', () => {
-      document.querySelectorAll('.scope-pill[data-scope]').forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
+  // Recipe chip -> prefill composer
+  document.querySelectorAll('.recipe-chip[data-recipe]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const ta = document.getElementById('chatTextarea');
+      if (ta) {
+        ta.value = chip.dataset.recipe;
+        ta.focus();
+      }
     });
+  });
+
+  // Scope dropdown -> reveal folder select for now
+  document.getElementById('chatScopeBtn')?.addEventListener('click', () => {
+    const sel = document.getElementById('askFolderSelect');
+    if (sel) sel.classList.toggle('hidden');
   });
 
   // Send button
   const sendBtn = document.getElementById('chatSendBtn');
   const textarea = document.getElementById('chatTextarea');
 
+  // Toggle send arrow vs mic based on input
+  const syncSendIcon = () => {
+    if (!sendBtn) return;
+    const hasText = Boolean(textarea?.value.trim());
+    sendBtn.classList.toggle('has-text', hasText);
+    sendBtn.setAttribute('aria-label', hasText ? 'Send' : 'Start voice input');
+  };
+  textarea?.addEventListener('input', syncSendIcon);
+  syncSendIcon();
+
   async function sendChat() {
     const text = textarea.value.trim();
     if (!text) return;
-    const scope = document.querySelector('.scope-pill.active')?.dataset.scope || 'all';
+    const scope = 'all';
     const folderId = document.getElementById('askFolderSelect')?.value
       ? parseInt(document.getElementById('askFolderSelect').value)
       : null;
@@ -2251,6 +2314,36 @@ function formatRelativeTime(tsMs) {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d`;
   return `${Math.floor(days / 30)}mo`;
+}
+
+function formatRelativeShort(tsMs) {
+  if (!tsMs) return '';
+  const diff = Date.now() - tsMs;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
+function getChatGreetingName() {
+  try {
+    const stored = window.localStorage.getItem('audire.user.displayName');
+    if (stored && stored.trim()) return stored.trim().split(/\s+/)[0];
+  } catch {}
+  const el = document.querySelector('.user-profile .user-name');
+  const raw = el?.textContent?.trim();
+  if (raw && raw !== 'User') {
+    return raw.split(/\s+/)[0];
+  }
+  return 'there';
 }
 
 function escapeHtml(str) {
