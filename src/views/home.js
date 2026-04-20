@@ -22,13 +22,26 @@ function formatRelativeDate(tsSeconds) {
   );
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
-  return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const day = date.getDate();
+  const month = date.toLocaleDateString('en-US', { month: 'short' });
+  return `${weekday} ${day} ${month}`;
 }
 
 function formatClockTime(date) {
+  if (isNaN(date.getTime())) return '';
   return date.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
+}
+
+/** Parse ISO 8601 or bare YYYY-MM-DD date strings safely.
+ *  Bare date strings are treated as local midnight (not UTC). */
+function parseEventDate(str) {
+  if (!str) return new Date(NaN);
+  return /^\d{4}-\d{2}-\d{2}$/.test(str)
+    ? new Date(str + 'T00:00:00')
+    : new Date(str);
 }
 
 function groupMeetingsByDate(meetings) {
@@ -41,65 +54,187 @@ function groupMeetingsByDate(meetings) {
   return groups;
 }
 
+/** Group calendar events by date key (YYYY-MM-DD) */
+function groupEventsByDate(events) {
+  const groups = new Map();
+  for (const ev of events) {
+    const start = parseEventDate(ev.start);
+    const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  }
+  return groups;
+}
+
+function todayKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 export function initHomeView(state, callbacks = {}) {
   appState = state;
   onNavigateToTranscript = callbacks.onNavigateToTranscript || null;
 }
 
+/* ── Skeleton loader ─────────────────────────────────────────── */
+
+function renderSkeleton() {
+  const skeletonDateGroup = (w) => `
+    <div class="calendar-date-group">
+      <div class="calendar-event-date">
+        <div class="skeleton-block" style="width:30px;height:28px;border-radius:4px;"></div>
+        <div class="skeleton-block" style="width:34px;height:9px;margin-top:4px;border-radius:3px;"></div>
+        <div class="skeleton-block" style="width:22px;height:9px;margin-top:2px;border-radius:3px;"></div>
+      </div>
+      <div class="calendar-date-events">
+        <div class="calendar-event-entry">
+          <div class="skeleton-bar"></div>
+          <div class="calendar-event-info">
+            <div class="skeleton-block" style="width:${w}px;height:13px;border-radius:3px;"></div>
+            <div class="skeleton-block" style="width:80px;height:10px;margin-top:4px;border-radius:3px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const skeletonMeeting = (tw, sw) => `
+    <div class="meeting-list-item" style="pointer-events:none;">
+      <div class="skeleton-block" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;"></div>
+      <div class="meeting-list-info">
+        <div class="skeleton-block" style="width:${tw}px;height:13px;border-radius:3px;"></div>
+        <div class="skeleton-block" style="width:${sw}px;height:10px;margin-top:4px;border-radius:3px;"></div>
+      </div>
+      <div class="skeleton-block" style="width:36px;height:11px;border-radius:3px;flex-shrink:0;"></div>
+    </div>`;
+
+  return `
+    <div class="home-view">
+      <h2 class="home-section-title">Coming up</h2>
+      <div class="calendar-events-card skeleton-pulse">
+        ${skeletonDateGroup(180)}
+        ${skeletonDateGroup(210)}
+        ${skeletonDateGroup(160)}
+        ${skeletonDateGroup(240)}
+      </div>
+      <div class="skeleton-pulse">
+        <div class="skeleton-block" style="width:80px;height:10px;border-radius:3px;margin-bottom:var(--space-3);"></div>
+        ${skeletonMeeting(200, 100)}
+        ${skeletonMeeting(260, 80)}
+      </div>
+      <div class="skeleton-pulse" style="margin-top:var(--space-4);">
+        <div class="skeleton-block" style="width:70px;height:10px;border-radius:3px;margin-bottom:var(--space-3);"></div>
+        ${skeletonMeeting(280, 130)}
+        ${skeletonMeeting(170, 110)}
+      </div>
+    </div>
+    <div class="view-bottom-bar">
+      <input type="text" class="ask-input" placeholder="Ask anything" disabled />
+      <button class="recipe-shortcut-btn" disabled>/ List recent todos</button>
+    </div>`;
+}
+
+/* ── Main render ─────────────────────────────────────────────── */
+
 export async function renderHomeView() {
   const container = document.getElementById('view-home');
   if (!container) return;
 
-  // Load data
+  // Show skeleton immediately
+  container.innerHTML = renderSkeleton();
+
+  // Load data in parallel
   let events = [];
   let meetings = [];
+  let calendarStatuses = [];
   try {
-    events = await invoke('list_calendar_events');
-  } catch { /* calendar may not be connected */ }
-  try {
-    meetings = await invoke('list_meetings');
-  } catch (e) {
-    console.error('list_meetings error:', e);
+    [events, meetings, calendarStatuses] = await Promise.all([
+      invoke('list_upcoming_calendar_events').catch(() => []),
+      invoke('list_meetings').catch((e) => {
+        console.error('list_meetings error:', e);
+        return [];
+      }),
+      invoke('list_calendar_statuses').catch(() => []),
+    ]);
+  } catch { /* fallback */ }
+
+  // ── Build connected-accounts status line ────────────────────
+  const connectedAccounts = calendarStatuses.filter(s => s.connected && s.email);
+  let calendarStatusHtml = '';
+  if (connectedAccounts.length > 0) {
+    const labels = connectedAccounts.map(a =>
+      `<span class="home-cal-account">${escapeHtml(a.email)}</span>`
+    ).join('');
+    calendarStatusHtml = `<div class="home-calendar-status">Connected ${labels}</div>`;
   }
 
-  // Build calendar events
+  // ── Build calendar events grouped by date ──────────────────
   let eventsHtml = '';
   if (events.length > 0) {
-    const eventRows = events.slice(0, 5).map(ev => {
-      const start = ev.start ? new Date(ev.start * 1000) : null;
-      const end = ev.end ? new Date(ev.end * 1000) : null;
-      const dateNum = start ? start.getDate() : '';
-      const monthStr = start ? start.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() : '';
-      const dayStr = start ? start.toLocaleDateString('en-US', { weekday: 'short' }) : '';
-      const timeRange = start && end
-        ? `${formatClockTime(start)} – ${formatClockTime(end)}`
-        : start ? formatClockTime(start) : '';
+    const grouped = groupEventsByDate(events);
+    const tk = todayKey();
 
-      return `
-        <div class="calendar-event-row">
+    // Ensure today is shown first
+    const displayMap = grouped.has(tk) ? grouped : (() => {
+      const m = new Map([[tk, []]]);
+      for (const [k, v] of grouped) m.set(k, v);
+      return m;
+    })();
+
+    let groupRows = '';
+    for (const [dateKey, dateEvents] of displayMap) {
+      const sampleDate = dateEvents.length > 0
+        ? parseEventDate(dateEvents[0].start)
+        : new Date(dateKey + 'T00:00:00');
+      const dateNum = isNaN(sampleDate.getTime()) ? '--' : sampleDate.getDate();
+      const monthStr = sampleDate.toLocaleDateString('en-US', { month: 'long' });
+      const dayStr = sampleDate.toLocaleDateString('en-US', { weekday: 'short' });
+      const isToday = dateKey === tk;
+
+      let entriesHtml = '';
+      if (dateEvents.length === 0) {
+        entriesHtml = `
+          <div class="calendar-event-entry">
+            <div class="calendar-event-info">
+              <span class="calendar-event-title calendar-event-muted">No more events today</span>
+            </div>
+          </div>`;
+      } else {
+        for (const ev of dateEvents) {
+          const start = parseEventDate(ev.start);
+          const end = parseEventDate(ev.end);
+          const timeRange = `${formatClockTime(start)} \u2013 ${formatClockTime(end)}`;
+          entriesHtml += `
+            <div class="calendar-event-entry">
+              <div class="calendar-event-bar"></div>
+              <div class="calendar-event-info">
+                <span class="calendar-event-title">${escapeHtml(ev.title || 'Untitled event')}</span>
+                <span class="calendar-event-time">${escapeHtml(timeRange)}</span>
+              </div>
+            </div>`;
+        }
+      }
+
+      groupRows += `
+        <div class="calendar-date-group${isToday ? ' calendar-date-today' : ''}">
           <div class="calendar-event-date">
             <span class="calendar-event-date-num">${dateNum}</span>
-            <span class="calendar-event-date-month">${escapeHtml(monthStr)}</span>
+            <span class="calendar-event-date-month">${escapeHtml(monthStr)}${isToday ? '<span class="today-dot"></span>' : ''}</span>
             <span class="calendar-event-date-day">${escapeHtml(dayStr)}</span>
           </div>
-          <div class="calendar-event-bar"></div>
-          <div class="calendar-event-info">
-            <span class="calendar-event-title">${escapeHtml(ev.title || 'Untitled event')}</span>
-            <span class="calendar-event-time">${escapeHtml(timeRange)}</span>
+          <div class="calendar-date-events">
+            ${entriesHtml}
           </div>
-        </div>
-      `;
-    }).join('');
-    eventsHtml = `<div class="calendar-events-card">${eventRows}</div>`;
+        </div>`;
+    }
+    eventsHtml = `<div class="calendar-events-card">${groupRows}</div>`;
   } else {
     eventsHtml = `
       <div class="calendar-events-card">
         <div class="calendar-empty">No upcoming events. Connect your calendar in Settings.</div>
-      </div>
-    `;
+      </div>`;
   }
 
-  // Build meeting notes list grouped by date
+  // ── Build meeting notes list grouped by date ───────────────
   const sorted = [...meetings]
     .filter(m => m.note_count > 0 || m.has_structured_notes)
     .sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
@@ -113,16 +248,24 @@ export async function renderHomeView() {
       const initial = (title.trim().charAt(0) || 'M').toUpperCase();
       const date = m.started_at ? new Date(m.started_at * 1000) : null;
       const timeStr = date ? formatClockTime(date) : '';
+      const subtitle = m.note_preview
+        ? escapeHtml(m.note_preview.slice(0, 60))
+        : 'Me';
       meetingListHtml += `
         <button class="meeting-list-item" data-mid="${escapeHtml(m.id)}">
           <div class="meeting-list-avatar">${escapeHtml(initial)}</div>
           <div class="meeting-list-info">
             <div class="meeting-list-title truncate">${escapeHtml(title)}</div>
-            <div class="meeting-list-meta">${m.note_count || 0} note${m.note_count === 1 ? '' : 's'}</div>
+            <div class="meeting-list-meta">${subtitle}</div>
           </div>
-          <div class="meeting-list-time">${escapeHtml(timeStr)}</div>
-        </button>
-      `;
+          <div class="meeting-list-right">
+            <svg class="meeting-list-lock" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span class="meeting-list-time">${escapeHtml(timeStr)}</span>
+          </div>
+        </button>`;
     }
   }
 
@@ -130,23 +273,23 @@ export async function renderHomeView() {
     meetingListHtml = `
       <div style="padding: var(--space-8) 0; text-align: center;">
         <p class="text-muted text-sm">No meeting notes yet. Start a recording session to create your first note.</p>
-      </div>
-    `;
+      </div>`;
   }
 
+  // ── Render final HTML ──────────────────────────────────────
   container.innerHTML = `
     <div class="home-view">
       <h2 class="home-section-title">Coming up</h2>
+      ${calendarStatusHtml}
       ${eventsHtml}
       ${meetingListHtml}
     </div>
     <div class="view-bottom-bar">
       <input type="text" class="ask-input" id="home-ask-input" placeholder="Ask anything" />
       <button class="recipe-shortcut-btn" id="home-recipe-btn">/ List recent todos</button>
-    </div>
-  `;
+    </div>`;
 
-  // Bind events
+  // ── Bind events ────────────────────────────────────────────
   container.querySelectorAll('[data-mid]').forEach(el => {
     el.addEventListener('click', () => {
       appState.meetingId = el.dataset.mid;
