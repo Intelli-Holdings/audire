@@ -352,36 +352,6 @@ src-tauri/helpers/audire_sck_helper.swift
 17. **People view**: Navigate to People. Verify participants render. Add a person.
 18. **Companies view**: Navigate to Companies. Verify orgs render. Add a company.
 
----
-
-## Sources (Primary References)
-
-**Tauri v2:**
-- Capabilities + command access model: https://v2.tauri.app/security/capabilities/
-- Calling Rust from frontend: https://v2.tauri.app/develop/calling-rust/
-- Windows installer + WebView2 modes/sizes: https://v2.tauri.app/distribute/windows-installer/
-
-**ASR:**
-- Deepgram Flux v2 Listen: https://developers.deepgram.com/reference/speech-to-text/listen-flux
-- Deepgram Flux EOT tuning: https://developers.deepgram.com/docs/flux/configuration
-- Deepgram Flux CloseStream: https://developers.deepgram.com/docs/flux/close-stream
-- AssemblyAI Universal-3 Pro Streaming: https://www.assemblyai.com/docs/api-reference/streaming-api/universal-3-pro-streaming/universal-3-pro-streaming
-- AssemblyAI ForceEndpoint guide: https://www.assemblyai.com/docs/streaming/universal-3-pro
-
-**Audio:**
-- Windows WASAPI loopback recording: https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording
-- Application loopback sample: https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/
-- wasapi crate: https://docs.rs/wasapi/latest/wasapi/struct.AudioClient.html
-- ScreenCaptureKit (WWDC22): https://developer.apple.com/videos/play/wwdc2022/10156/
-- PulseAudio monitor sources: https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/Modules/
-- PipeWire pw-cat: https://www.mankier.com/1/pw-cat
-
-**Storage & Security:**
-- SQLite FTS5: https://www.sqlite.org/fts5.html
-- Tokio runtime Builder: https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html
-
----
-
 ## License
 
-Copyright 2026 Intell Holdings Inc. All rights reserved.
+Copyright 2026 Intelli Holdings Inc. All rights reserved.
