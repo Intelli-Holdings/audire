@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart LR
-  UI[WebView UI<br/>HTML/JS/CSS] <-- IPC invoke + events --> CORE[Rust Core<br/>Tauri v2]
+  UI[WebView UI<br/>HTML/JS/CSS<br/>9 Views] <-- IPC invoke + events --> CORE[Rust Core<br/>Tauri v2]
 
   CORE --> AC[AudioCapture]
   AC --> MIC[Mic via cpal<br/>cross-platform]
   AC --> SYS[System Audio]
   SYS --> WIN[Windows<br/>WASAPI loopback]
-  SYS --> MAC[macOS<br/>ScreenCaptureKit TODO]
-  SYS --> LNX[Linux<br/>PulseAudio/PipeWire monitor TODO]
+  SYS --> MAC[macOS<br/>ScreenCaptureKit]
+  SYS --> LNX[Linux<br/>PulseAudio/PipeWire monitor]
 
   CORE --> RESAMPLE[Resample<br/>48k→16k mono]
   RESAMPLE --> FRAME[Frame<br/>100ms PCM chunks]
@@ -19,10 +19,12 @@ flowchart LR
   CORE --> ASR[Streaming ASR Gateway<br/>WebSocket]
   ASR --> DG[Deepgram<br/>Finalize + CloseStream]
   ASR --> AAI[AssemblyAI<br/>Universal Streaming + Terminate]
+  ASR --> MOCK[Mock Provider<br/>Offline Testing]
 
   CORE --> DB[LocalStore<br/>SQLite + FTS5 + SQLCipher]
   CORE --> KV[KeyVault<br/>OS keyring via keyring crate]
 
+  CORE --> CAL[Calendar Service<br/>Google + Microsoft OAuth]
   CORE --> RECIPE[Recipes<br/>retrieval-first summaries]
   RECIPE -.-> LLM[Optional LLM Gateway<br/>OpenAI / Anthropic<br/>feature-gated]
 ```
