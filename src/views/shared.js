@@ -12,8 +12,7 @@ export async function renderSharedView() {
 
   container.innerHTML = `
     <div class="shared-view">
-      <h2 class="shared-title">Shared with me</h2>
-      <p class="shared-subtitle">Notes and folders shared with you by others will appear here.</p>
+      <h2 class="home-section-title">Shared with me</h2>
 
       <div class="empty-state">
         <div class="empty-state-icon">

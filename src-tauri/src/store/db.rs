@@ -1893,6 +1893,9 @@ pub struct CalendarConfigRow {
     pub connected: bool,
     pub email: Option<String>,
     pub display_name: Option<String>,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

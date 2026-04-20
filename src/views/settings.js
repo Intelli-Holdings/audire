@@ -24,6 +24,8 @@ const CALENDAR_PROVIDERS = [
     id: 'google',
     label: 'Google Calendar',
     clientPlaceholder: 'Google OAuth desktop client ID',
+    hasSecret: true,
+    secretPlaceholder: 'Google OAuth client secret',
     hasTenant: false,
     help: 'Uses Google OAuth for Desktop Apps to read upcoming calendar events.',
   },
@@ -163,6 +165,9 @@ function renderPreferences(panel) {
   });
 }
 
+// Track connection errors per provider so they persist across re-renders
+const calendarErrors = {};
+
 async function renderCalendarSection(panel) {
   let calendarStatuses = [];
   try {
@@ -175,6 +180,7 @@ async function renderCalendarSection(panel) {
     const status = calendarStatuses.find(s => s.provider === prov.id) || {};
     const statusLabel = status.connected ? 'Connected' : status.configured ? 'Configured' : 'Not set';
     const statusClass = status.connected ? 'connected' : 'not-set';
+    const lastError = calendarErrors[prov.id] || '';
     return `
       <div class="calendar-row">
         <div class="calendar-provider-header">
@@ -183,9 +189,11 @@ async function renderCalendarSection(panel) {
         </div>
         <div class="calendar-help">${escapeHtml(prov.help)}</div>
         ${status.email ? `<div class="calendar-connected-as">Connected as ${escapeHtml(status.email)}</div>` : ''}
+        ${lastError ? `<div class="calendar-error">${escapeHtml(lastError)}</div>` : ''}
         <div class="calendar-fields">
-          <input type="text" class="inline-input" style="flex:1;" id="cal-client-${prov.id}" placeholder="${escapeHtml(prov.clientPlaceholder)}" />
-          ${prov.hasTenant ? `<input type="text" class="inline-input" style="flex:1;" id="cal-tenant-${prov.id}" placeholder="${escapeHtml(prov.tenantPlaceholder)}" />` : ''}
+          <input type="text" class="inline-input" style="flex:1;" id="cal-client-${prov.id}" placeholder="${escapeHtml(prov.clientPlaceholder)}" value="${escapeHtml(status.client_id || '')}" />
+          ${prov.hasSecret ? `<input type="password" class="inline-input" style="flex:1;" id="cal-secret-${prov.id}" placeholder="${escapeHtml(prov.secretPlaceholder)}" value="${escapeHtml(status.client_secret || '')}" />` : ''}
+          ${prov.hasTenant ? `<input type="text" class="inline-input" style="flex:1;" id="cal-tenant-${prov.id}" placeholder="${escapeHtml(prov.tenantPlaceholder)}" value="${escapeHtml(status.tenant_id || '')}" />` : ''}
         </div>
         <div class="calendar-actions">
           <button class="btn-primary btn-sm" data-save-cal="${prov.id}">Save config</button>
@@ -328,10 +336,12 @@ function bindCalendarEvents() {
     btn.addEventListener('click', async () => {
       const provider = btn.dataset.saveCal;
       const clientId = document.getElementById(`cal-client-${provider}`)?.value.trim();
+      const clientSecret = document.getElementById(`cal-secret-${provider}`)?.value.trim() || null;
       const tenantId = document.getElementById(`cal-tenant-${provider}`)?.value.trim() || null;
       if (!clientId) return;
       try {
-        await invoke('save_calendar_config', { provider, clientId, tenantId });
+        await invoke('save_calendar_config', { provider, clientId, clientSecret, tenantId });
+        delete calendarErrors[provider];
         showToast(`${provider} calendar config saved`, 'success');
         await renderCalendarSection(document.getElementById('settings-content-panel'));
       } catch (e) {
@@ -345,13 +355,17 @@ function bindCalendarEvents() {
     btn.addEventListener('click', async () => {
       const provider = btn.dataset.connectCal;
       btn.disabled = true;
+      btn.textContent = 'Connecting\u2026';
       try {
         await invoke('connect_calendar_provider', { provider });
+        delete calendarErrors[provider];
         showToast(`${provider} calendar connected`, 'success');
         await renderCalendarSection(document.getElementById('settings-content-panel'));
       } catch (e) {
-        showToast('Failed to connect: ' + e, 'error');
-        btn.disabled = false;
+        const errMsg = String(e);
+        calendarErrors[provider] = 'Connection failed: ' + errMsg;
+        showToast('Failed to connect: ' + errMsg, 'error');
+        await renderCalendarSection(document.getElementById('settings-content-panel'));
       }
     });
   });
@@ -362,6 +376,7 @@ function bindCalendarEvents() {
       const provider = btn.dataset.disconnectCal;
       try {
         await invoke('disconnect_calendar_provider', { provider });
+        delete calendarErrors[provider];
         showToast(`${provider} calendar disconnected`, 'success');
         await renderCalendarSection(document.getElementById('settings-content-panel'));
       } catch (e) {

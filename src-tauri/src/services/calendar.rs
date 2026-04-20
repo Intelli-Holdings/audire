@@ -128,12 +128,16 @@ pub fn list_provider_statuses(store: &LocalStore, keyvault: &KeyVault) -> Result
         .iter()
         .map(|provider| {
             let account = accounts.iter().find(|row| row.provider == *provider);
+            let config = get_provider_config(keyvault, provider);
             CalendarConfigRow {
                 provider: provider.to_string(),
-                configured: get_provider_config(keyvault, provider).is_some(),
+                configured: config.is_some(),
                 connected: account.is_some() && load_tokens(keyvault, provider).is_some(),
                 email: account.and_then(|row| row.email.clone()),
                 display_name: account.and_then(|row| row.display_name.clone()),
+                client_id: config.as_ref().map(|(id, _, _)| id.clone()),
+                client_secret: config.as_ref().and_then(|(_, sec, _)| sec.clone()),
+                tenant_id: config.and_then(|(_, _, t)| t),
             }
         })
         .collect())
@@ -143,6 +147,7 @@ pub fn save_provider_config(
     keyvault: &KeyVault,
     provider: &str,
     client_id: &str,
+    client_secret: Option<&str>,
     tenant_id: Option<&str>,
 ) -> Result<()> {
     let provider = normalize_provider(provider)?;
@@ -152,6 +157,15 @@ pub fn save_provider_config(
     keyvault
         .set_secret(&format!("calendar:{}:client_id", provider), client_id.trim())
         .map_err(|e| ParaError::KeyVault(e.to_string()))?;
+    if let Some(secret) = client_secret {
+        if !secret.trim().is_empty() {
+            keyvault
+                .set_secret(&format!("calendar:{}:client_secret", provider), secret.trim())
+                .map_err(|e| ParaError::KeyVault(e.to_string()))?;
+        }
+    } else {
+        let _ = keyvault.delete_secret(&format!("calendar:{}:client_secret", provider));
+    }
     if provider == MICROSOFT_PROVIDER {
         let tenant = tenant_id.unwrap_or("common").trim();
         keyvault
@@ -165,6 +179,7 @@ pub fn disconnect_provider(store: &LocalStore, keyvault: &KeyVault, provider: &s
     let provider = normalize_provider(provider)?;
     let _ = keyvault.delete_secret(&format!("calendar:{}:tokens", provider));
     let _ = keyvault.delete_secret(&format!("calendar:{}:client_id", provider));
+    let _ = keyvault.delete_secret(&format!("calendar:{}:client_secret", provider));
     if provider == MICROSOFT_PROVIDER {
         let _ = keyvault.delete_secret(&format!("calendar:{}:tenant_id", provider));
     }
@@ -216,7 +231,7 @@ fn normalize_provider<'a>(provider: &'a str) -> Result<&'a str> {
     }
 }
 
-fn get_provider_config(keyvault: &KeyVault, provider: &str) -> Option<(String, Option<String>)> {
+fn get_provider_config(keyvault: &KeyVault, provider: &str) -> Option<(String, Option<String>, Option<String>)> {
     let client_id = match provider {
         GOOGLE_PROVIDER => std::env::var("AUDIRE_GOOGLE_CALENDAR_CLIENT_ID")
             .ok()
@@ -227,6 +242,16 @@ fn get_provider_config(keyvault: &KeyVault, provider: &str) -> Option<(String, O
         _ => None,
     }?;
 
+    let client_secret = match provider {
+        GOOGLE_PROVIDER => std::env::var("AUDIRE_GOOGLE_CALENDAR_CLIENT_SECRET")
+            .ok()
+            .or_else(|| keyvault.get_secret("calendar:google:client_secret")),
+        MICROSOFT_PROVIDER => std::env::var("AUDIRE_MICROSOFT_CALENDAR_CLIENT_SECRET")
+            .ok()
+            .or_else(|| keyvault.get_secret("calendar:microsoft:client_secret")),
+        _ => None,
+    };
+
     let tenant_id = if provider == MICROSOFT_PROVIDER {
         std::env::var("AUDIRE_MICROSOFT_CALENDAR_TENANT_ID")
             .ok()
@@ -236,7 +261,7 @@ fn get_provider_config(keyvault: &KeyVault, provider: &str) -> Option<(String, O
         None
     };
 
-    Some((client_id, tenant_id))
+    Some((client_id, client_secret, tenant_id))
 }
 
 fn load_tokens(keyvault: &KeyVault, provider: &str) -> Option<CalendarTokenBundle> {
@@ -359,7 +384,7 @@ fn percent_decode(input: &str) -> String {
 }
 
 async fn connect_google(store: &LocalStore, keyvault: &KeyVault) -> Result<CalendarAccountRow> {
-    let (client_id, _) = get_provider_config(keyvault, GOOGLE_PROVIDER)
+    let (client_id, client_secret, _) = get_provider_config(keyvault, GOOGLE_PROVIDER)
         .ok_or_else(|| ParaError::MissingKey("google calendar client ID".into()))?;
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| ParaError::Other(format!("google oauth listener bind failed: {}", e)))?;
@@ -388,20 +413,32 @@ async fn connect_google(store: &LocalStore, keyvault: &KeyVault) -> Result<Calen
     .map_err(|e| ParaError::Other(format!("google oauth join failed: {}", e)))??;
 
     let client = Client::new();
-    let token = client
+    let mut token_params = vec![
+        ("client_id", client_id.as_str()),
+        ("code", code.as_str()),
+        ("code_verifier", verifier.as_str()),
+        ("grant_type", "authorization_code"),
+        ("redirect_uri", redirect_uri.as_str()),
+    ];
+    let secret_ref = client_secret.as_deref().unwrap_or("");
+    if !secret_ref.is_empty() {
+        token_params.push(("client_secret", secret_ref));
+    }
+    let resp = client
         .post("https://oauth2.googleapis.com/token")
-        .form(&[
-            ("client_id", client_id.as_str()),
-            ("code", code.as_str()),
-            ("code_verifier", verifier.as_str()),
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", redirect_uri.as_str()),
-        ])
+        .form(&token_params)
         .send()
         .await
-        .map_err(|e| ParaError::Other(format!("google token exchange failed: {}", e)))?
-        .error_for_status()
-        .map_err(|e| ParaError::Other(format!("google token exchange failed: {}", e)))?
+        .map_err(|e| ParaError::Other(format!("google token exchange failed: {}", e)))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ParaError::Other(format!(
+            "google token exchange failed ({}): {}",
+            status, body
+        )));
+    }
+    let token = resp
         .json::<GoogleTokenResp>()
         .await
         .map_err(|e| ParaError::Other(format!("google token decode failed: {}", e)))?;
@@ -417,7 +454,7 @@ async fn connect_google(store: &LocalStore, keyvault: &KeyVault) -> Result<Calen
 }
 
 async fn connect_microsoft(store: &LocalStore, keyvault: &KeyVault) -> Result<CalendarAccountRow> {
-    let (client_id, tenant_id) = get_provider_config(keyvault, MICROSOFT_PROVIDER)
+    let (client_id, _, tenant_id) = get_provider_config(keyvault, MICROSOFT_PROVIDER)
         .ok_or_else(|| ParaError::MissingKey("microsoft calendar client ID".into()))?;
     let tenant_id = tenant_id.unwrap_or_else(|| "common".to_string());
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -452,7 +489,7 @@ async fn connect_microsoft(store: &LocalStore, keyvault: &KeyVault) -> Result<Ca
         "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
         tenant_id
     );
-    let token = client
+    let resp = client
         .post(token_url)
         .form(&[
             ("client_id", client_id.as_str()),
@@ -464,9 +501,16 @@ async fn connect_microsoft(store: &LocalStore, keyvault: &KeyVault) -> Result<Ca
         ])
         .send()
         .await
-        .map_err(|e| ParaError::Other(format!("microsoft token exchange failed: {}", e)))?
-        .error_for_status()
-        .map_err(|e| ParaError::Other(format!("microsoft token exchange failed: {}", e)))?
+        .map_err(|e| ParaError::Other(format!("microsoft token exchange failed: {}", e)))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ParaError::Other(format!(
+            "microsoft token exchange failed ({}): {}",
+            status, body
+        )));
+    }
+    let token = resp
         .json::<MicrosoftTokenResp>()
         .await
         .map_err(|e| ParaError::Other(format!("microsoft token decode failed: {}", e)))?;
@@ -511,7 +555,7 @@ async fn fetch_microsoft_profile(client: &Client, access_token: &str) -> Result<
 }
 
 async fn get_valid_google_access_token(store: &LocalStore, keyvault: &KeyVault) -> Result<String> {
-    let (client_id, _) = get_provider_config(keyvault, GOOGLE_PROVIDER)
+    let (client_id, client_secret, _) = get_provider_config(keyvault, GOOGLE_PROVIDER)
         .ok_or_else(|| ParaError::MissingKey("google calendar client ID".into()))?;
     let mut bundle = load_tokens(keyvault, GOOGLE_PROVIDER)
         .ok_or_else(|| ParaError::InvalidState("google calendar is not connected".into()))?;
@@ -523,13 +567,18 @@ async fn get_valid_google_access_token(store: &LocalStore, keyvault: &KeyVault) 
         .clone()
         .ok_or_else(|| ParaError::InvalidState("google calendar refresh token missing".into()))?;
     let client = Client::new();
+    let mut refresh_params = vec![
+        ("client_id", client_id.as_str()),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token.as_str()),
+    ];
+    let secret_ref = client_secret.as_deref().unwrap_or("");
+    if !secret_ref.is_empty() {
+        refresh_params.push(("client_secret", secret_ref));
+    }
     let refreshed = client
         .post("https://oauth2.googleapis.com/token")
-        .form(&[
-            ("client_id", client_id.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token.as_str()),
-        ])
+        .form(&refresh_params)
         .send()
         .await
         .map_err(|e| ParaError::Other(format!("google token refresh failed: {}", e)))?
@@ -552,7 +601,7 @@ async fn get_valid_google_access_token(store: &LocalStore, keyvault: &KeyVault) 
 }
 
 async fn get_valid_microsoft_access_token(store: &LocalStore, keyvault: &KeyVault) -> Result<String> {
-    let (client_id, tenant_id) = get_provider_config(keyvault, MICROSOFT_PROVIDER)
+    let (client_id, _, tenant_id) = get_provider_config(keyvault, MICROSOFT_PROVIDER)
         .ok_or_else(|| ParaError::MissingKey("microsoft calendar client ID".into()))?;
     let tenant_id = tenant_id.unwrap_or_else(|| "common".to_string());
     let mut bundle = load_tokens(keyvault, MICROSOFT_PROVIDER)

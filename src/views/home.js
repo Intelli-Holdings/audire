@@ -126,10 +126,10 @@ function renderSkeleton() {
         ${skeletonMeeting(280, 130)}
         ${skeletonMeeting(170, 110)}
       </div>
-    </div>
-    <div class="view-bottom-bar">
-      <input type="text" class="ask-input" placeholder="Ask anything" disabled />
-      <button class="recipe-shortcut-btn" disabled>/ List recent todos</button>
+      <div class="home-composer" style="opacity:0.4;">
+        <input type="text" class="ask-input" placeholder="Ask anything" disabled />
+        <button class="recipe-shortcut-btn" disabled>/ List recent todos</button>
+      </div>
     </div>`;
 }
 
@@ -283,10 +283,10 @@ export async function renderHomeView() {
       ${calendarStatusHtml}
       ${eventsHtml}
       ${meetingListHtml}
-    </div>
-    <div class="view-bottom-bar">
-      <input type="text" class="ask-input" id="home-ask-input" placeholder="Ask anything" />
-      <button class="recipe-shortcut-btn" id="home-recipe-btn">/ List recent todos</button>
+      <div class="home-composer">
+        <input type="text" class="ask-input" id="home-ask-input" placeholder="Ask anything" />
+        <button class="recipe-shortcut-btn" id="home-recipe-btn">/ List recent todos</button>
+      </div>
     </div>`;
 
   // ── Bind events ────────────────────────────────────────────

@@ -40,12 +40,14 @@ pub fn save_calendar_config(
     state: tauri::State<'_, AppState>,
     provider: String,
     client_id: String,
+    client_secret: Option<String>,
     tenant_id: Option<String>,
 ) -> Result<()> {
     calendar::save_provider_config(
         &state.keyvault,
         &provider,
         &client_id,
+        client_secret.as_deref(),
         tenant_id.as_deref(),
     )
 }
