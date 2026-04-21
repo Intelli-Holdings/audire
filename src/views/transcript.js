@@ -13,6 +13,7 @@ let currentStructuredNote = null;
 let currentMeeting = null;
 let meetingUserNotes = [];
 let showingMeetingDetail = false;
+let llmProviders = [];
 
 function escapeHtml(str) {
   const d = document.createElement('div');
@@ -158,14 +159,16 @@ async function renderMeetingDetail() {
 
   if (appState.meetingId && !appState.isCapturing) {
     try {
-      const [detail, participants] = await Promise.all([
+      const [detail, participants, providers] = await Promise.all([
         invoke('get_meeting_detail', { meetingId: appState.meetingId }),
         invoke('list_participants', { meetingId: appState.meetingId }),
+        invoke('list_llm_providers').catch(() => []),
       ]);
       currentMeeting = detail.meeting;
       meetingSegments = detail.segments || [];
       meetingUserNotes = detail.user_notes || [];
       currentStructuredNote = detail.structured_note || null;
+      llmProviders = providers || [];
     } catch (e) {
       console.error('Meeting detail load error:', e);
     }
@@ -216,28 +219,114 @@ async function renderMeetingDetail() {
     `;
   }
 
-  // Generate notes button (only show when recording is done and no structured note yet)
-  let generateBtnHtml = '';
-  if (!appState.isCapturing && appState.meetingId && !currentStructuredNote && meetingSegments.length > 0) {
-    generateBtnHtml = `
-      <div style="display:flex;justify-content:center;padding:var(--space-3) 0;">
-        <button class="btn-primary" id="generate-notes-btn" style="display:flex;align-items:center;gap:var(--space-2);">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-          Generate notes
-        </button>
+  // For completed meetings, build tabbed panels
+  const isCompleted = !appState.isCapturing && appState.meetingId;
+  const hasSegments = meetingSegments.length > 0 || appState.finals.length > 0;
+
+  // Raw transcript panel content
+  let rawTranscriptHtml = '';
+  if (hasSegments) {
+    rawTranscriptHtml = `
+      <div class="transcript-raw-panel" id="transcript-raw-panel">
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-bottom:var(--space-3);">
+          <button class="btn-ghost btn-sm" id="copy-transcript-btn" style="display:flex;align-items:center;gap:4px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            Copy text
+          </button>
+          <button class="btn-ghost btn-sm" id="export-md-btn" style="display:flex;align-items:center;gap:4px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export .md
+          </button>
+          <button class="btn-ghost btn-sm" id="export-pdf-btn" style="display:flex;align-items:center;gap:4px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            PDF
+          </button>
+        </div>
+        <div class="transcript-raw-scroll" id="transcript-raw-scroll">
+          ${buildRawTranscriptHtml()}
+        </div>
       </div>
     `;
   }
 
-  // Enhanced notes below the user notes area
-  let enhancedHtml = '';
-  if (currentStructuredNote) {
-    enhancedHtml = `
-      <div style="border-top:1px solid var(--color-surface-2);margin-top:var(--space-6);padding-top:var(--space-4);">
-        <div class="pane-label">AI enhanced</div>
-        <div class="enhanced-content text-ai" id="enhanced-notes-content">
-          ${renderStructuredNotes(currentStructuredNote)}
+  // AI enhanced notes panel
+  let aiNotesHtml = '';
+  if (isCompleted && hasSegments) {
+    if (currentStructuredNote) {
+      aiNotesHtml = `
+        <div class="transcript-ai-panel" id="transcript-ai-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-3);">
+            <div style="display:flex;align-items:center;gap:var(--space-2);">
+              <span class="badge-subtle" style="display:flex;align-items:center;gap:4px;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                AI Enhanced
+              </span>
+              <span class="badge-subtle text-xs">${escapeHtml(currentStructuredNote.template_kind || 'generic')}</span>
+            </div>
+            <div style="display:flex;gap:var(--space-2);">
+              <button class="btn-ghost btn-sm" id="copy-ai-notes-btn" style="display:flex;align-items:center;gap:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                Copy
+              </button>
+              <button class="btn-ghost btn-sm" id="regenerate-notes-btn" style="display:flex;align-items:center;gap:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                Regenerate
+              </button>
+            </div>
+          </div>
+          <div class="enhanced-content text-ai" id="enhanced-notes-content">
+            ${renderStructuredNotes(currentStructuredNote)}
+          </div>
         </div>
+      `;
+    } else {
+      const providerPills = llmProviders.map(p => `
+        <span class="provider-pill ${p.available ? 'provider-available' : 'provider-unavailable'}"
+              title="${escapeHtml(p.name)} - ${p.available ? 'Key configured' : 'No key'}">
+          <span class="provider-dot ${p.available ? 'dot-green' : 'dot-red'}"></span>
+          ${escapeHtml(p.name)}
+        </span>
+      `).join('');
+
+      aiNotesHtml = `
+        <div class="transcript-ai-panel" id="transcript-ai-panel">
+          <div style="text-align:center;padding:var(--space-8) 0;">
+            <p class="text-muted" style="margin-bottom:var(--space-4);">Generate AI-enhanced notes from this transcript</p>
+            ${providerPills ? `
+              <div style="display:flex;justify-content:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;">
+                ${providerPills}
+              </div>
+            ` : ''}
+            <div style="display:flex;align-items:center;justify-content:center;gap:var(--space-2);margin-bottom:var(--space-4);">
+              <label class="text-xs text-muted" for="template-select">Template:</label>
+              <select class="note-editor-folder-select" id="template-select" style="min-width:140px;">
+                <option value="">Auto-detect</option>
+                <option value="generic">Generic</option>
+                <option value="sales_call">Sales call</option>
+                <option value="one_on_one">1:1</option>
+                <option value="standup">Standup</option>
+                <option value="interview">Interview</option>
+                <option value="client_review">Client review</option>
+              </select>
+            </div>
+            <button class="btn-primary" id="generate-notes-btn" style="display:inline-flex;align-items:center;gap:var(--space-2);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+              Generate notes
+            </button>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // Tab bar for completed meetings with segments
+  let tabBarHtml = '';
+  if (isCompleted && hasSegments) {
+    tabBarHtml = `
+      <div class="transcript-tab-bar" id="transcript-tab-bar">
+        <button class="transcript-tab active" data-tab="notes">Notes</button>
+        <button class="transcript-tab" data-tab="transcript">Transcript</button>
+        <button class="transcript-tab" data-tab="ai">AI Notes</button>
       </div>
     `;
   }
@@ -250,7 +339,7 @@ async function renderMeetingDetail() {
           style="font-family:var(--font-display);font-size:var(--text-h1);font-weight:var(--weight-normal);margin-bottom:var(--space-3);" />
 
         <!-- Meta chips -->
-        <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-6);flex-wrap:wrap;">
+        <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;">
           <span class="badge-subtle" style="display:flex;align-items:center;gap:4px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             ${escapeHtml(dateChip)}
@@ -265,23 +354,33 @@ async function renderMeetingDetail() {
           </button>
         </div>
 
-        <!-- Notes textarea -->
-        <textarea
-          id="user-notes-input"
-          class="notes-textarea text-user"
-          placeholder="Write your notes here..."
-          spellcheck="true"
-          style="min-height:300px;"
-        >${escapeHtml(userNotesText)}</textarea>
+        ${tabBarHtml}
 
-        ${enhancedHtml}
+        <!-- Notes tab (default) -->
+        <div class="transcript-tab-content active" data-tab-content="notes">
+          <textarea
+            id="user-notes-input"
+            class="notes-textarea text-user"
+            placeholder="Write your notes here..."
+            spellcheck="true"
+            style="min-height:300px;"
+          >${escapeHtml(userNotesText)}</textarea>
+        </div>
+
+        <!-- Transcript tab -->
+        <div class="transcript-tab-content" data-tab-content="transcript" style="display:none;">
+          ${rawTranscriptHtml || '<p class="text-muted text-sm" style="padding:var(--space-4) 0;">No transcript segments yet.</p>'}
+        </div>
+
+        <!-- AI Notes tab -->
+        <div class="transcript-tab-content" data-tab-content="ai" style="display:none;">
+          ${aiNotesHtml || '<p class="text-muted text-sm" style="padding:var(--space-4) 0;">Start a recording to generate AI notes.</p>'}
+        </div>
       </div>
 
       <!-- Floating transcript card (when capturing) -->
       ${transcriptCardHtml}
     </div>
-
-    ${generateBtnHtml}
 
     <!-- Bottom bar -->
     <div class="view-bottom-bar" style="justify-content:flex-start;">
@@ -368,6 +467,122 @@ function renderStructuredNotes(note) {
   return html || '<p class="text-muted text-sm">Structured notes are empty.</p>';
 }
 
+function buildRawTranscriptHtml() {
+  const all = [...meetingSegments].sort((a, b) => a.ts_ms - b.ts_ms);
+  if (!all.length) return '<p class="text-muted text-sm">No transcript segments.</p>';
+
+  let html = '';
+  for (const seg of all) {
+    const source = seg.source === 'MIC' ? 'You' : 'Speaker';
+    html += `<div class="transcript-raw-line" data-transcript-segment="${seg.id}">`;
+    html += `<span class="transcript-raw-time">${escapeHtml(formatShortTime(seg.ts_ms))}</span>`;
+    html += `<span class="transcript-raw-source">${escapeHtml(source)}</span>`;
+    html += `<span class="transcript-raw-text">${escapeHtml(seg.text)}</span>`;
+    html += `</div>`;
+  }
+  return html;
+}
+
+function getTranscriptAsPlainText() {
+  const all = [...meetingSegments].sort((a, b) => a.ts_ms - b.ts_ms);
+  return all.map(seg => {
+    const source = seg.source === 'MIC' ? 'You' : 'Speaker';
+    return `[${formatShortTime(seg.ts_ms)}] ${source}: ${seg.text}`;
+  }).join('\n');
+}
+
+function getAiNotesAsPlainText() {
+  if (!currentStructuredNote) return '';
+  const lines = [];
+  if (currentStructuredNote.summary) {
+    lines.push('## Summary\n' + currentStructuredNote.summary + '\n');
+  }
+  if (currentStructuredNote.sections?.length) {
+    for (const section of currentStructuredNote.sections) {
+      lines.push(`## ${section.label}`);
+      if (section.items?.length) {
+        for (const item of section.items) {
+          lines.push(`- ${item.text}`);
+        }
+      }
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+}
+
+function buildPrintableHtml() {
+  const title = currentMeeting?.title || 'Meeting Notes';
+  const startedAt = currentMeeting?.started_at
+    ? new Date(currentMeeting.started_at * 1000).toLocaleString()
+    : '';
+  const userNotesText = meetingUserNotes.map(n => n.text).join('\n\n');
+
+  let aiSection = '';
+  if (currentStructuredNote) {
+    aiSection += '<h2>AI-Enhanced Notes</h2>';
+    if (currentStructuredNote.summary) {
+      aiSection += `<h3>Summary</h3><p>${escapeHtml(currentStructuredNote.summary)}</p>`;
+    }
+    if (currentStructuredNote.sections?.length) {
+      for (const section of currentStructuredNote.sections) {
+        aiSection += `<h3>${escapeHtml(section.label)}</h3><ul>`;
+        for (const item of (section.items || [])) {
+          aiSection += `<li>${escapeHtml(item.text)}</li>`;
+        }
+        aiSection += '</ul>';
+      }
+    }
+  }
+
+  const transcriptLines = [...meetingSegments].sort((a, b) => a.ts_ms - b.ts_ms)
+    .map(seg => `<tr><td style="color:#888;white-space:nowrap;padding-right:12px;">${escapeHtml(formatShortTime(seg.ts_ms))}</td><td>${escapeHtml(seg.text)}</td></tr>`)
+    .join('');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 700px; margin: 0 auto; padding: 40px 20px; color: #222; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .meta { color: #888; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 16px; border-bottom: 1px solid #e5e5e5; padding-bottom: 4px; margin-top: 28px; }
+  h3 { font-size: 14px; color: #555; margin-top: 16px; }
+  p, li { font-size: 14px; line-height: 1.6; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: 'SF Mono', 'Cascadia Code', monospace; }
+  td { padding: 3px 0; vertical-align: top; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+<h1>${escapeHtml(title)}</h1>
+<div class="meta">${escapeHtml(startedAt)}</div>
+${userNotesText ? `<h2>Notes</h2><p style="white-space:pre-wrap;">${escapeHtml(userNotesText)}</p>` : ''}
+${aiSection}
+${transcriptLines ? `<h2>Transcript</h2><table>${transcriptLines}</table>` : ''}
+<div style="margin-top:40px;color:#aaa;font-size:11px;">Generated by Audire</div>
+</body></html>`;
+}
+
+function exportAsPdf() {
+  const html = buildPrintableHtml();
+  const printWindow = window.open('', '_blank', 'width=800,height=600');
+  if (!printWindow) {
+    showToast('Pop-up blocked - allow pop-ups to export PDF', 'error');
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
+async function copyToClipboard(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`${label} copied to clipboard`, 'success');
+  } catch {
+    showToast('Failed to copy to clipboard', 'error');
+  }
+}
+
 function buildTranscriptHtml() {
   const persistedRows = meetingSegments.map(seg => ({
     id: seg.id, ts_ms: seg.ts_ms, text: seg.text, kind: 'formatted-final',
@@ -419,6 +634,59 @@ function updateLiveStrip() {
 }
 
 function bindMeetingDetailEvents() {
+  // Tab switching
+  document.querySelectorAll('.transcript-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetTab = tab.dataset.tab;
+      document.querySelectorAll('.transcript-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === targetTab));
+      document.querySelectorAll('.transcript-tab-content').forEach(c => {
+        c.style.display = c.dataset.tabContent === targetTab ? '' : 'none';
+        c.classList.toggle('active', c.dataset.tabContent === targetTab);
+      });
+    });
+  });
+
+  // Copy transcript
+  document.getElementById('copy-transcript-btn')?.addEventListener('click', () => {
+    copyToClipboard(getTranscriptAsPlainText(), 'Transcript');
+  });
+
+  // Copy AI notes
+  document.getElementById('copy-ai-notes-btn')?.addEventListener('click', () => {
+    copyToClipboard(getAiNotesAsPlainText(), 'AI notes');
+  });
+
+  // Export PDF
+  document.getElementById('export-pdf-btn')?.addEventListener('click', () => {
+    exportAsPdf();
+  });
+
+  // Export markdown
+  document.getElementById('export-md-btn')?.addEventListener('click', async () => {
+    if (!appState.meetingId) return;
+    try {
+      const resp = await invoke('export', { meetingId: appState.meetingId, format: 'md' });
+      showToast('Exported to ' + resp.path, 'success');
+    } catch (err) {
+      showToast('Export failed: ' + err, 'error');
+    }
+  });
+
+  // Regenerate notes with template selector
+  document.getElementById('regenerate-notes-btn')?.addEventListener('click', async () => {
+    if (!appState.meetingId) return;
+    try {
+      const btn = document.getElementById('regenerate-notes-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+      currentStructuredNote = await invoke('generate_structured_meeting_notes', {
+        meetingId: appState.meetingId, templateKind: null,
+      });
+      renderMeetingDetail();
+    } catch (err) {
+      showToast('Failed to regenerate notes: ' + err, 'error');
+    }
+  });
+
   // Title editing
   document.getElementById('session-title')?.addEventListener('blur', async (e) => {
     const nextTitle = e.target.value.trim();
@@ -473,16 +741,24 @@ function bindMeetingDetailEvents() {
     }
   });
 
-  // Generate notes
+  // Generate notes (with template selector)
   document.getElementById('generate-notes-btn')?.addEventListener('click', async () => {
     if (!appState.meetingId) return;
+    const templateSelect = document.getElementById('template-select');
+    const templateKind = templateSelect?.value || null;
     try {
+      const btn = document.getElementById('generate-notes-btn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-sm"></span> Generating...'; }
       currentStructuredNote = await invoke('generate_structured_meeting_notes', {
-        meetingId: appState.meetingId, templateKind: null,
+        meetingId: appState.meetingId, templateKind,
       });
       renderMeetingDetail();
+      // Switch to AI Notes tab
+      document.querySelector('.transcript-tab[data-tab="ai"]')?.click();
     } catch (err) {
       showToast('Failed to generate notes: ' + err, 'error');
+      const btn = document.getElementById('generate-notes-btn');
+      if (btn) { btn.disabled = false; btn.textContent = 'Generate notes'; }
     }
   });
 
@@ -566,7 +842,8 @@ function bindMeetingDetailEvents() {
         try {
           const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
           const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-          hasLlm = hasAnthropic || hasOpenai;
+          const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
+          hasLlm = hasAnthropic || hasOpenai || hasGemini;
         } catch { /* ignore */ }
 
         const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';

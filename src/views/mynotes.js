@@ -194,7 +194,8 @@ export async function renderMyNotesView() {
         try {
           const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
           const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-          hasLlm = hasAnthropic || hasOpenai;
+          const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
+          hasLlm = hasAnthropic || hasOpenai || hasGemini;
         } catch { /* ignore */ }
         const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
         const resp = await invoke(command, {

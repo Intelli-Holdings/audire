@@ -14,6 +14,17 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
+function meetingDisplayName(m) {
+  if (m.title && m.title !== 'Untitled' && m.title.trim()) return m.title;
+  // Fallback: use date + time
+  if (m.started_at) {
+    const d = new Date(m.started_at * 1000);
+    return 'Meeting ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return 'Meeting';
+}
+
 function formatRelativeShort(tsMs) {
   if (!tsMs) return '';
   const diff = Date.now() - tsMs;
@@ -66,7 +77,7 @@ export async function renderChatView() {
     ? recentsItems.map(m => `
         <a class="chat-recent-item" href="#" data-meeting-id="${escapeHtml(m.id || '')}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span class="chat-recent-title">${escapeHtml(m.title || 'Untitled')}</span>
+          <span class="chat-recent-title">${escapeHtml(meetingDisplayName(m))}</span>
           <span class="chat-recent-ago">${escapeHtml(formatRelativeShort((m.started_at || 0) * 1000))}</span>
         </a>
       `).join('')
@@ -187,7 +198,8 @@ export async function renderChatView() {
       try {
         const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
         const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-        hasLlm = hasAnthropic || hasOpenai;
+        const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
+        hasLlm = hasAnthropic || hasOpenai || hasGemini;
       } catch { /* ignore */ }
 
       const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
@@ -198,7 +210,8 @@ export async function renderChatView() {
         folderId: null,
       });
       const answer = resp.answer || 'No response.';
-      appendMessage('audire', answer);
+      const citations = resp.citations || [];
+      appendMessage('audire', answer, citations);
       chatHistory[chatHistory.length - 1].answer = answer;
     } catch (err) {
       appendMessage('audire', 'Error: ' + err);
@@ -288,16 +301,55 @@ function stopListening(sendBtn) {
   sendBtn?.setAttribute('aria-label', 'Start voice input');
 }
 
-function appendMessage(role, text) {
+function appendMessage(role, text, citations = []) {
   const container = document.getElementById('chat-view-messages');
   if (!container) return;
   const msg = document.createElement('div');
   msg.className = 'chat-message';
   msg.dataset.role = role;
+
+  let citationsHtml = '';
+  if (citations.length > 0) {
+    citationsHtml = `<div class="chat-citations">${citations.slice(0, 3).map(c =>
+      `<span class="badge-subtle text-xs">${escapeHtml(c.title || c.excerpt?.slice(0, 40) || 'source')}</span>`
+    ).join('')}</div>`;
+  }
+
+  let actionsHtml = '';
+  if (role === 'audire') {
+    const msgId = Date.now();
+    actionsHtml = `
+      <div class="chat-message-actions">
+        <button class="btn-ghost btn-xs chat-copy-btn" data-copy-text="${escapeHtml(text)}">Copy</button>
+        <button class="btn-ghost btn-xs chat-save-btn" data-save-text="${escapeHtml(text)}">Save as note</button>
+      </div>
+    `;
+  }
+
   msg.innerHTML = `
     <span class="chat-message-role">${role === 'user' ? 'You' : 'Audire'}</span>
     <span class="chat-message-body">${escapeHtml(text)}</span>
+    ${citationsHtml}
+    ${actionsHtml}
   `;
+
+  // Bind action buttons
+  msg.querySelector('.chat-copy-btn')?.addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      e.target.textContent = 'Copied!';
+      setTimeout(() => { e.target.textContent = 'Copy'; }, 1500);
+    } catch { showToast('Copy failed', 'error'); }
+  });
+
+  msg.querySelector('.chat-save-btn')?.addEventListener('click', async (e) => {
+    try {
+      await invoke('create_standalone_note', { title: 'Chat insight', text });
+      e.target.textContent = 'Saved!';
+      setTimeout(() => { e.target.textContent = 'Save as note'; }, 1500);
+    } catch { showToast('Save failed', 'error'); }
+  });
+
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
 }

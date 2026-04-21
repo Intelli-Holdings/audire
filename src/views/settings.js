@@ -17,6 +17,7 @@ const API_PROVIDERS = [
   { id: 'assemblyai', label: 'AssemblyAI', desc: 'U3 Pro streaming ASR', placeholder: 'Key\u2026' },
   { id: 'openai', label: 'OpenAI', desc: 'LLM recipes', placeholder: 'sk-\u2026' },
   { id: 'anthropic', label: 'Anthropic', desc: 'LLM recipes', placeholder: 'sk-ant-\u2026' },
+  { id: 'gemini', label: 'Google Gemini', desc: 'LLM recipes', placeholder: 'AIza\u2026' },
 ];
 
 const CALENDAR_PROVIDERS = [
