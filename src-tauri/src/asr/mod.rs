@@ -178,12 +178,25 @@ pub async fn run_pipeline(
                         let _ = store_rx.insert_segment(&meeting_rx, "SYS", ts_ms, &f, None);
                     }
 
-                    // Log messages that don't match any known pattern (Begin, Error, etc.)
+                    // Handle known informational message types quietly; only log
+                    // truly unrecognised messages at warning level.
                     if !has_partial && !has_final && !ev.is_termination() {
                         if let Some(raw) = ev.raw_json() {
                             let msg_type = raw.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-                            eprintln!("[asr] unhandled msg type '{}' from {}: {}", msg_type, prov_rx,
-                                serde_json::to_string(raw).unwrap_or_default().chars().take(300).collect::<String>());
+                            match msg_type {
+                                "Begin" => {
+                                    let model = raw.pointer("/configuration/model")
+                                        .and_then(|v| v.as_str()).unwrap_or("unknown");
+                                    eprintln!("[asr] session started on {} (model: {})", prov_rx, model);
+                                }
+                                "SpeechStarted" => {
+                                    // Speech-start is normal; no action needed.
+                                }
+                                _ => {
+                                    eprintln!("[asr] unhandled msg type '{}' from {}: {}", msg_type, prov_rx,
+                                        serde_json::to_string(raw).unwrap_or_default().chars().take(300).collect::<String>());
+                                }
+                            }
                         }
                     }
                 }
@@ -294,9 +307,12 @@ fn spawn_audio_sender(
         // iterations so partial chunks (<1600 samples) are not discarded.
         let mut pending_16k = Vec::<i16>::with_capacity(4800);
 
-        // Empty-state tracking: log only on transitions to avoid spam.
+        // Empty-state tracking: log only when silence exceeds a debounce
+        // threshold (500ms) to avoid spam from inter-callback gaps (~15ms).
         let mut was_empty = false;
         let mut empty_since: Option<std::time::Instant> = None;
+        let mut silence_logged = false;
+        let silence_log_debounce = std::time::Duration::from_millis(500);
 
         // Pre-built 100ms of silence at 16kHz mono pcm_s16le = 1600 samples × 2 bytes
         // (3200 bytes). Sent as keep-alive when both buffers are empty so
@@ -336,11 +352,20 @@ fn spawn_audio_sender(
             }
 
             if scratch_mic.is_empty() && scratch_sys.is_empty() {
-                // Log only on transition to empty (not every iteration).
                 if !was_empty {
-                    eprintln!("[asr] audio sender: both buffers empty, sending silence keep-alive");
                     was_empty = true;
                     empty_since = Some(std::time::Instant::now());
+                    silence_logged = false;
+                }
+                // Only log once after sustained silence (>500ms), not on every
+                // inter-callback gap which fires ~60 times/sec.
+                if !silence_logged {
+                    if let Some(since) = empty_since {
+                        if since.elapsed() >= silence_log_debounce {
+                            eprintln!("[asr] audio sender: sustained silence (>500ms), sending keep-alives");
+                            silence_logged = true;
+                        }
+                    }
                 }
 
                 // Silence keep-alive: prevents providers from terminating a session
@@ -366,14 +391,17 @@ fn spawn_audio_sender(
                 continue;
             }
 
-            // Log transition from empty → data (with duration summary).
+            // Log transition from empty → data only if silence was sustained.
             if was_empty {
-                let gap_ms = empty_since
-                    .map(|t| t.elapsed().as_millis())
-                    .unwrap_or(0);
-                eprintln!("[asr] audio resumed after {}ms empty", gap_ms);
+                if silence_logged {
+                    let gap_ms = empty_since
+                        .map(|t| t.elapsed().as_millis())
+                        .unwrap_or(0);
+                    eprintln!("[asr] audio resumed after {}ms silence", gap_ms);
+                }
                 was_empty = false;
                 empty_since = None;
+                silence_logged = false;
             }
 
             let mic_fmt = mic.as_ref().map(|m| m.fmt);
