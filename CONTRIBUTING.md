@@ -13,7 +13,7 @@ Thanks for your interest in contributing! This guide covers the development setu
 
 ```bash
 # Clone the repository
-git clone https://github.com/samsonroyal/audire.git
+git clone https://github.com/Intelli-Holdings/audire.git
 cd audire
 
 # Install JS dependencies
