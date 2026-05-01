@@ -105,6 +105,18 @@ impl LocalStore {
             .map_err(|e| ParaError::Db(format!("db mutex poisoned: {}", e)))
     }
 
+    /// Run a closure against the connection. Public escape hatch used by
+    /// optional modules (`sync::account`, future `sync::vaults`) that
+    /// own their own SQL but still need to share the same encrypted
+    /// connection. Errors are surfaced as `rusqlite::Result`.
+    pub fn with_conn<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<R>,
+    ) -> rusqlite::Result<R> {
+        let guard = self.inner.lock().expect("db mutex poisoned");
+        f(&guard)
+    }
+
     /// Open an in-memory DB for testing.
     #[cfg(test)]
     pub fn open_memory() -> Result<Self> {
@@ -2629,6 +2641,78 @@ fn migrate(conn: &Connection) -> Result<()> {
         "meetings",
         "calendar_provider",
         "ALTER TABLE meetings ADD COLUMN calendar_provider TEXT",
+    )?;
+
+    // Optional cloud sync schema. The presence of these tables/columns
+    // does NOT mean the app is talking to a server — sync is opt-in
+    // and gated by the `sync_account` row. See sync::account.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_vaults(
+            vault_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL,
+            wrapped_vault_key BLOB NOT NULL,
+            org_id TEXT,
+            last_op_id_applied INTEGER NOT NULL DEFAULT 0,
+            last_op_id_remote INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_outbox(
+            local_id TEXT PRIMARY KEY,
+            vault_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            payload_ciphertext BLOB NOT NULL,
+            client_ts_ms INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_vault_state ON sync_outbox(vault_id, state);
+
+        CREATE TABLE IF NOT EXISTS sync_orgs(
+            org_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            owner_user_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        "#,
+    )
+    .map_err(|e| ParaError::Db(e.to_string()))?;
+    ensure_column(
+        conn,
+        "folders",
+        "vault_id",
+        "ALTER TABLE folders ADD COLUMN vault_id TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "standalone_notes",
+        "vault_id",
+        "ALTER TABLE standalone_notes ADD COLUMN vault_id TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "standalone_notes",
+        "synced_op_id",
+        "ALTER TABLE standalone_notes ADD COLUMN synced_op_id INTEGER",
+    )?;
+    ensure_column(
+        conn,
+        "standalone_notes",
+        "remote_id",
+        "ALTER TABLE standalone_notes ADD COLUMN remote_id TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "folders",
+        "remote_id",
+        "ALTER TABLE folders ADD COLUMN remote_id TEXT",
     )?;
 
     // Seed default detection_settings row if not present
