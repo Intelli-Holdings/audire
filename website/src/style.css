@@ -1369,3 +1369,215 @@ section {
     font-size: 1.65rem;
   }
 }
+
+/* ── Pricing page ─────────────────────────────────── */
+
+.pricing-hero {
+  padding: 96px 0 24px;
+  text-align: center;
+}
+
+.pricing-hero h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 3.6rem;
+  line-height: 1.04;
+  font-weight: 400;
+}
+
+.pricing-hero .lede {
+  margin-top: 22px;
+}
+
+.billing-toggle {
+  display: inline-flex;
+  margin: 28px auto 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+.billing-toggle button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.billing-toggle button.is-active {
+  background: var(--accent-dark);
+  color: hsl(var(--primary-foreground-hsl));
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px;
+  margin: 56px 0 24px;
+}
+
+.price-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 26px 26px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+.price-card.is-popular {
+  border-color: var(--accent-dark);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.10);
+}
+.price-card .pop-badge {
+  position: absolute;
+  top: -12px;
+  left: 22px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-dark);
+  color: hsl(var(--primary-foreground-hsl));
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.price-card h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1.1;
+  font-weight: 400;
+}
+.price-card .tagline {
+  margin: 6px 0 22px;
+  color: var(--text-2);
+  font-size: 0.96rem;
+  min-height: 44px;
+}
+.price-card .price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-display);
+}
+.price-card .price-amount {
+  font-size: 3.1rem;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+.price-card .price-currency {
+  font-size: 1rem;
+  color: var(--text-2);
+  font-weight: 650;
+}
+.price-card .price-cadence {
+  margin: 6px 0 22px;
+  color: var(--text-2);
+  font-size: 0.86rem;
+}
+.price-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.96rem;
+  flex: 1;
+}
+.price-card li {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  color: var(--text);
+}
+.price-card li::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  position: relative;
+}
+.price-card li.has-check::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 4px;
+  border: 2px solid var(--accent-deep);
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg) translate(4px, 4px);
+}
+.price-card .cta {
+  margin-top: 24px;
+}
+
+.byok-callout {
+  margin: 0 auto 24px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-warm);
+  max-width: 760px;
+  text-align: left;
+}
+.byok-callout h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 400;
+}
+.byok-callout p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.96rem;
+}
+.byok-callout p + p {
+  margin-top: 8px;
+}
+
+.faq {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.faq details {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 16px 20px;
+}
+.faq summary {
+  cursor: pointer;
+  font-weight: 750;
+  font-size: 1.02rem;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: "+";
+  font-size: 1.4rem;
+  color: var(--text-2);
+  transition: transform 150ms ease;
+}
+.faq details[open] summary::after { content: "−"; }
+.faq p {
+  margin: 12px 0 0;
+  color: var(--text-2);
+  font-size: 0.96rem;
+}

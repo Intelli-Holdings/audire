@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pricing — Audire</title>
+  <meta name="description" content="Audire is free to use locally, forever. Optional Sync add-on for end-to-end encrypted multi-device access. Bring your own ASR and LLM keys — Audire never charges for AI usage." />
+
+  <meta property="og:title" content="Pricing — Audire" />
+  <meta property="og:description" content="Free local app. Optional E2E-encrypted Sync at $4 / $8 a month. BYOK for ASR and LLM — Audire never charges for AI." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://audire.app/pricing" />
+  <meta property="og:image" content="https://audire.app/audire.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="google-site-verification" content="" />
+
+  <link rel="icon" type="image/svg+xml" href="/audire.svg" />
+  <link rel="canonical" href="https://audire.app/pricing" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container site-header-inner">
+      <a class="brand" href="/">
+        <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
+        <span>Audire</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/pricing">Pricing</a>
+        <a href="https://github.com/Intelli-Holdings/audire" rel="noopener">GitHub</a>
+      </nav>
+      <a class="nav-download" href="/#download">
+        <span class="os-icon" data-os-icon aria-hidden="true"></span>
+        <span>Download</span>
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <section class="pricing-hero">
+      <div class="container">
+        <a class="announcement" href="/#privacy">
+          Free without limits. No sign-up required.
+          <span aria-hidden="true">-&gt;</span>
+        </a>
+        <h1>Pricing that respects your data and your wallet.</h1>
+        <p class="lede">
+          Audire is free to use locally, forever. The optional Sync add-on
+          makes it easy to keep your notes encrypted and synced across devices
+          &mdash; without ever giving up control of the underlying audio.
+        </p>
+        <div class="billing-toggle" role="tablist" aria-label="Billing cadence">
+          <button type="button" class="is-active" data-cadence="yearly" role="tab" aria-selected="true">Yearly billing</button>
+          <button type="button" data-cadence="monthly" role="tab" aria-selected="false">Monthly billing</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-block" style="padding-top: 0;">
+      <div class="container">
+        <!-- BYOK callout — also reassures Google reviewers and prospective
+             users that "Audire never charges for AI" is policy, not marketing. -->
+        <div class="byok-callout" role="note">
+          <h3>Bring your own keys for AI</h3>
+          <p>
+            Transcription (Deepgram, AssemblyAI) and language-model features
+            (OpenAI, Anthropic, Google Gemini, Ollama) run on your own provider
+            account using your own API key. Audire <strong>never</strong>
+            charges you for AI usage and never proxies that traffic &mdash;
+            audio and prompts go from your device straight to the provider you
+            chose, over TLS.
+          </p>
+          <p>
+            That keeps the privacy story airtight (we don't see your data) and
+            keeps the pricing honest (you pay providers what they charge,
+            nothing more).
+          </p>
+        </div>
+
+        <div class="pricing-grid">
+          <!-- ── Free ─────────────────────────────────── -->
+          <article class="price-card" data-tier="free">
+            <h2>Free</h2>
+            <p class="tagline">The full local app, forever. No account required.</p>
+            <div class="price">
+              <span class="price-currency">$</span>
+              <span class="price-amount">0</span>
+            </div>
+            <p class="price-cadence">For one user, on as many devices as you like</p>
+            <ul>
+              <li class="has-check">Full live transcription</li>
+              <li class="has-check">Structured notes &amp; AI recipes</li>
+              <li class="has-check">Encrypted local database (SQLCipher)</li>
+              <li class="has-check">Calendar integration (Google, Microsoft)</li>
+              <li class="has-check">BYOK for ASR &amp; LLM</li>
+              <li class="has-check">Open source, MIT-licensed</li>
+              <li class="has-check">No telemetry, no analytics</li>
+            </ul>
+            <a class="btn btn-ghost cta" href="/#download">
+              <span class="os-icon" data-os-icon aria-hidden="true"></span>
+              <span>Download Audire</span>
+            </a>
+          </article>
+
+          <!-- ── Sync Standard ────────────────────────── -->
+          <article class="price-card is-popular" data-tier="sync">
+            <span class="pop-badge">Most popular</span>
+            <h2>Sync</h2>
+            <p class="tagline">Securely sync notes across all your devices.</p>
+            <div class="price">
+              <span class="price-currency">$</span>
+              <span class="price-amount" data-price="sync">4</span>
+            </div>
+            <p class="price-cadence">
+              <span data-cadence-line="yearly">Per user, per month, billed annually</span>
+              <span data-cadence-line="monthly" hidden>Per user, per month, billed monthly</span>
+            </p>
+            <ul>
+              <li class="has-check">Everything in Free</li>
+              <li class="has-check">End-to-end encrypted Sync</li>
+              <li class="has-check">1 synced vault</li>
+              <li class="has-check">1 GB encrypted storage</li>
+              <li class="has-check">1 month version history</li>
+              <li class="has-check">Recovery key issued at signup</li>
+              <li class="has-check">BYOK for ASR &amp; LLM</li>
+            </ul>
+            <a class="btn btn-primary cta" href="#waitlist">Join the waitlist</a>
+          </article>
+
+          <!-- ── Sync Plus ────────────────────────────── -->
+          <article class="price-card" data-tier="plus">
+            <h2>Sync Plus</h2>
+            <p class="tagline">Multiple vaults, longer history, shared org vaults.</p>
+            <div class="price">
+              <span class="price-currency">$</span>
+              <span class="price-amount" data-price="plus">8</span>
+            </div>
+            <p class="price-cadence">
+              <span data-cadence-line="yearly">Per user, per month, billed annually</span>
+              <span data-cadence-line="monthly" hidden>Per user, per month, billed monthly</span>
+            </p>
+            <ul>
+              <li class="has-check">Everything in Sync</li>
+              <li class="has-check">10 synced vaults</li>
+              <li class="has-check">10 GB encrypted storage</li>
+              <li class="has-check">12 months version history</li>
+              <li class="has-check">Shared org vaults (team collaboration)</li>
+              <li class="has-check">Per-vault selective sync</li>
+              <li class="has-check">Priority support</li>
+            </ul>
+            <a class="btn btn-ghost cta" href="#waitlist">Join the waitlist</a>
+          </article>
+        </div>
+
+        <p class="section-sub" style="text-align: center; margin-top: 8px; max-width: 720px; margin-left: auto; margin-right: auto;">
+          Sync is in private development. <a href="#waitlist">Join the waitlist</a> and we'll let you know the moment it ships. Audio is never synced &mdash; it was never saved.
+        </p>
+      </div>
+    </section>
+
+    <section class="section-block" id="waitlist">
+      <div class="container prose" style="text-align: center;">
+        <h2>Sync is launching soon.</h2>
+        <p>
+          Audire Sync is in private development with a target launch window
+          we'll announce as soon as we're confident in the dates. Drop your
+          email and we'll send a single message when it's ready &mdash; no
+          newsletter, no marketing, just one launch note.
+        </p>
+        <form class="waitlist-form" style="display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap;" action="mailto:werefast2000@gmail.com" method="post" enctype="text/plain">
+          <input type="email" name="email" placeholder="you@example.com" required
+                 style="min-height: 48px; min-width: 280px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit;" />
+          <button type="submit" class="btn btn-primary">Notify me</button>
+        </form>
+        <p style="font-size: 0.86rem; color: var(--text-muted); margin-top: 14px;">
+          We'll only email you about the Sync launch. Unsubscribe is "reply with the word stop" &mdash; we don't keep mailing lists.
+        </p>
+      </div>
+    </section>
+
+    <section class="section-block" style="padding-top: 0;">
+      <div class="container">
+        <div class="section-heading" style="text-align: center;">
+          <h2>Frequently asked</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Why is the local app free forever?</summary>
+            <p>
+              Audire is open source under the MIT license. Anyone can build
+              the app from source themselves &mdash; charging for the binary
+              would be silly. The optional Sync service is what we charge for,
+              because running encrypted storage and a sync server costs real
+              money.
+            </p>
+          </details>
+          <details>
+            <summary>Why do I have to bring my own keys?</summary>
+            <p>
+              ASR and LLM providers bill by the minute or by the token, and
+              their pricing changes faster than ours could keep up with. By
+              having you put a key directly into Audire, your audio and
+              prompts never pass through Audire's infrastructure &mdash; we
+              physically can't see them, and you pay providers exactly what
+              they charge with no Audire markup.
+            </p>
+          </details>
+          <details>
+            <summary>What happens to my audio?</summary>
+            <p>
+              Nothing. Audire never persists audio &mdash; not on your device,
+              not in our cloud, not ever. While you're recording, audio lives
+              in a small in-memory ring buffer that feeds the transcription
+              provider over a TLS WebSocket, and is overwritten continuously.
+              The local database has no audio column, so there is nowhere to
+              put it even if a future bug tried.
+            </p>
+          </details>
+          <details>
+            <summary>Will Sync ever include managed AI usage?</summary>
+            <p>
+              We've reserved the option to add a higher Sync tier that
+              includes a monthly ASR/LLM credit pool, for people who don't
+              want to manage provider accounts. It is explicitly out of scope
+              for v1. If we ship it, the privacy guarantees would change
+              (Audire would have provider-side usage logs) and we'd surface
+              that clearly &mdash; the BYOK tiers would never go away.
+            </p>
+          </details>
+          <details>
+            <summary>Do you offer education or non-profit discounts?</summary>
+            <p>
+              Yes. Once Sync launches, students, faculty, and non-profit
+              employees will be eligible for a discount &mdash; details on the
+              pricing page at launch. Email us at the address below if you're
+              interested in bulk licensing or have a question that doesn't fit
+              one of these tiers.
+            </p>
+          </details>
+          <details>
+            <summary>Can I self-host the Sync server?</summary>
+            <p>
+              The Sync server is being designed to be self-hostable on Fly +
+              Neon, but the open-source release of the server lags the hosted
+              service. If self-hosting is a hard requirement for you, get in
+              touch &mdash; we'd like to hear about your use case before we
+              commit to a public release date.
+            </p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/">
+            <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
+            <span>Audire</span>
+          </a>
+          <p style="margin: 12px 0 0; max-width: 320px;">
+            Local-first meeting transcription. Built by Intelli Holdings Inc, open source on GitHub.
+          </p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="/#download">Download</a></li>
+            <li><a href="/pricing">Pricing</a></li>
+            <li><a href="https://github.com/Intelli-Holdings/audire" rel="noopener">Source</a></li>
+            <li><a href="/#features">Features</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy policy</a></li>
+            <li><a href="/terms">Terms of service</a></li>
+            <li><a href="mailto:werefast2000@gmail.com">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-fineprint">
+        <span>© <span id="year"></span> Intelli Holdings Inc. Audire is open source.</span>
+        <span>Made with care, no telemetry.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+
+  <!-- Pricing-page interactivity: billing-cadence toggle. Pricing is the
+       same per-month either way (matching Obsidian's structure where
+       monthly and yearly are the same headline number); the toggle just
+       swaps the cadence line. If we later split monthly vs yearly prices,
+       update the data-price-* tables below. -->
+  <script type="module">
+    import { mountOsBadges } from '/src/download.js';
+    mountOsBadges(document);
+
+    const PRICES = {
+      yearly: { sync: '4', plus: '8' },
+      monthly: { sync: '5', plus: '10' }, // small premium for going month-to-month
+    };
+    const buttons = document.querySelectorAll('[data-cadence]');
+    const setCadence = (cadence) => {
+      buttons.forEach((b) => {
+        const active = b.dataset.cadence === cadence;
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      document.querySelectorAll('[data-price]').forEach((el) => {
+        const tier = el.dataset.price;
+        if (PRICES[cadence]?.[tier]) el.textContent = PRICES[cadence][tier];
+      });
+      document.querySelectorAll('[data-cadence-line]').forEach((el) => {
+        el.hidden = el.dataset.cadenceLine !== cadence;
+      });
+    };
+    buttons.forEach((b) => b.addEventListener('click', () => setCadence(b.dataset.cadence)));
+  </script>
+</body>
+</html>
