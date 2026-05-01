@@ -104,11 +104,13 @@ It "listens alongside you" — capturing microphone + system audio, performing r
 
 ## Privacy-by-default (Enforced)
 
-- **No audio is written to disk** at any time (memory-only ring buffers)
-- Only text transcripts + your manual notes are persisted
-- Local DB is **encrypted at rest** (SQLCipher via rusqlite `bundled-sqlcipher`)
-- **BYOK**: Cloud calls (ASR/LLM) require user-provided keys from environment variables or OS keyring (KeyVault). Keys are **never returned to the WebView**. There is no IPC command to read secrets.
-- No logs ever print raw API keys
+- **Audio is never persisted, anywhere — not on the recorder's device, not in the cloud, not ever.** Audio exists only in RAM during capture (a small ring buffer feeds the streaming ASR socket) and is discarded as soon as it's been transcribed. The schema in `src-tauri/src/store/db.rs` intentionally has no `audio_bytes`, `audio_blob`, or attachment column — there is no place to put audio even if a future caller tried.
+- **Only text transcripts + your manual notes are persisted**, and only on your device.
+- **Local DB is encrypted at rest** (SQLCipher via rusqlite `bundled-sqlcipher-vendored-openssl`). The DB key lives in your OS keyring, never on disk in plaintext, and is never returned to the WebView.
+- **BYOK**: Cloud calls (ASR / LLM) require keys you provide. Keys are read in Rust core only, fetched from environment variables or the OS keyring; there is no IPC command that returns a secret to the frontend.
+- **TLS everywhere**: ASR streaming uses `wss://` (Deepgram, AssemblyAI). LLM calls use `https://`. No plaintext audio or text leaves the device.
+- **No telemetry**, no analytics, no crash reporters phoning home. The app makes outbound network calls only to the providers you've configured.
+- **Audire Sync (optional, opt-in)**: when you sign in to the optional cloud sync service, transcripts and notes are end-to-end encrypted on your device before upload. Audio is still never synced — there is nothing to sync, because nothing was kept.
 
 ---
 
