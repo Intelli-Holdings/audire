@@ -1,0 +1,30 @@
+# fly.toml — audire-server (Audire Sync v1)
+#
+# Deploy from this directory:
+#     fly launch        # first time, accept defaults
+#     fly secrets set DATABASE_URL=... STACK_AUTH_PROJECT_ID=... \
+#                     STACK_AUTH_JWKS_URL=... STACK_AUTH_AUDIENCE=...
+#     fly deploy
+
+app             = "audire-server"
+primary_region  = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RUST_LOG  = "audire_server=info,tower_http=info,sqlx=warn"
+  BIND_ADDR = "0.0.0.0:8080"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes           = ["app"]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "512mb"
