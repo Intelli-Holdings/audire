@@ -43,6 +43,10 @@
             </span>
             <span class="nav-label">Home</span>
           </a>
+          <!-- "Shared with me" is hidden in the nav until the sharing backend ships.
+               The view (src/views/shared.js) and target div (#view-shared) are kept
+               in place so re-enabling is a one-line uncomment. -->
+          <!--
           <a class="nav-item" data-view="shared" role="button" tabindex="0">
             <span class="nav-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -54,6 +58,8 @@
             </span>
             <span class="nav-label">Shared with me</span>
           </a>
+          -->
+
           <a class="nav-item" data-view="chat" role="button" tabindex="0">
             <span class="nav-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -89,7 +95,7 @@
           <button class="user-card" id="user-card-btn" aria-label="Open settings">
             <div class="user-avatar">A</div>
             <div class="user-card-info">
-              <span class="user-card-name">Audire User</span>
+              <span class="user-card-name">Audire</span>
               <span class="text-xs text-muted">Settings</span>
             </div>
             <span class="user-card-chevron">&rsaquo;</span>
