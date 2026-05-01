@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder Audire logo. Replace with the production SVG when ready.
+  Square 256x256 viewbox so it works for the consent screen, favicon, and OG image.
+  The wordmark is a stylised "A" in the brand amber on a dark plinth.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" fill="#0e0f12"/>
+  <path
+    d="M128 56 L196 200 L168 200 L154 168 L102 168 L88 200 L60 200 Z M114 144 L142 144 L128 110 Z"
+    fill="#c8a44e"/>
+</svg>

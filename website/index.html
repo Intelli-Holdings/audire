@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audire - Local-first meeting transcription</title>
+  <meta name="description" content="Audire is a local-first desktop app for meeting transcription, private notes, and reusable AI recipes. Audio is never persisted anywhere. Bring your own ASR and LLM keys." />
+
+  <meta property="og:title" content="Audire - Local-first meeting transcription" />
+  <meta property="og:description" content="Private meeting transcription and notes. Audio is never persisted, anywhere. BYOK." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://audire.app/" />
+  <meta property="og:image" content="https://audire.app/logo.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Audire - Local-first meeting transcription" />
+  <meta name="twitter:description" content="Private meeting transcription and notes. Audio is never persisted, anywhere. BYOK." />
+
+  <meta name="google-site-verification" content="" />
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="canonical" href="https://audire.app/" />
+  <link rel="stylesheet" href="/src/style.css" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "name": "Intelli Holdings Inc",
+        "url": "https://audire.app",
+        "logo": "https://audire.app/logo.svg"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Audire",
+        "applicationCategory": "ProductivityApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "description": "Local-first desktop app for meeting transcription, notes, and recipes. Audio is never persisted, anywhere.",
+        "url": "https://audire.app",
+        "publisher": { "@type": "Organization", "name": "Intelli Holdings Inc" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container site-header-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Audire</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/Intelli-Holdings/audire" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-inner">
+        <a class="announcement" href="#privacy">
+          Local-first, open source, no telemetry
+          <span aria-hidden="true">-&gt;</span>
+        </a>
+        <h1>Audire turns meetings into private notes.</h1>
+        <p class="lede">
+          Capture live transcripts, structured summaries, and reusable AI
+          recipes from your own desktop. Your audio is never saved, synced, or
+          proxied by Audire.
+        </p>
+        <div class="hero-cta" id="hero-download">
+          <a class="btn btn-primary" href="https://github.com/Intelli-Holdings/audire/releases/latest" rel="noopener">Download Audire</a>
+          <a class="btn btn-ghost" href="https://github.com/Intelli-Holdings/audire" rel="noopener">View source</a>
+        </div>
+
+        <div class="product-preview" aria-label="Audire app preview">
+          <div class="window-bar">
+            <span class="window-dot dot-red"></span>
+            <span class="window-dot dot-yellow"></span>
+            <span class="window-dot dot-green"></span>
+            <span class="window-title">Audire meeting session</span>
+          </div>
+          <div class="preview-grid">
+            <div class="transcript-pane">
+              <div class="pane-label">Live transcript</div>
+              <h2>Intro call: AllFound</h2>
+              <p><strong>Maya:</strong> We are growing quickly, but the team still needs a calmer way to remember decisions.</p>
+              <p><strong>Rahul:</strong> The priority for Q2 is secure information sharing without another meeting bot joining calls.</p>
+              <div class="recording-control" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+            <div class="notes-pane">
+              <div class="pane-label">AI recipe output</div>
+              <h2>Meeting brief</h2>
+              <ul>
+                <li><strong>Current workflow:</strong> scattered notes, manual follow-up, slow handoff.</li>
+                <li><strong>Decision:</strong> trial Audire with customer calls and weekly team syncs.</li>
+                <li><strong>Next action:</strong> prepare a private recap and action list for Friday.</li>
+              </ul>
+              <div class="note-highlight">Audio discarded. Transcript encrypted locally.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="trusted-strip" aria-label="Audire principles">
+      <div class="container">
+        <p>Built for people who want meeting memory without giving up control.</p>
+        <div class="principle-row">
+          <span>Audio never persisted</span>
+          <span>Bring your own keys</span>
+          <span>Encrypted local database</span>
+          <span>Open source</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section-block">
+      <div class="container">
+        <div class="section-heading">
+          <h2>How Audire works</h2>
+          <p>Quiet capture, clean notes, and explicit data boundaries from the first run.</p>
+        </div>
+        <div class="feature-list">
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">01</div>
+            <h3>Capture the audio you choose</h3>
+            <p>Stream microphone and system audio into the transcription provider you configure. Audire does not write audio files to disk.</p>
+          </article>
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">02</div>
+            <h3>Turn transcripts into notes</h3>
+            <p>Use recipes for summaries, decisions, action items, weekly recaps, interview notes, and follow-up drafts.</p>
+          </article>
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">03</div>
+            <h3>Keep the record local</h3>
+            <p>Transcripts and notes live in SQLCipher at rest, with database keys stored in your operating system keyring.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="split-section">
+      <div class="container split-grid">
+        <div class="copy-block">
+          <h2>Works where your meetings already happen.</h2>
+          <p>
+            Audire captures from your computer instead of sending a bot into
+            the call, so it can support meetings across conferencing tools,
+            webinars, demos, and screen-share reviews.
+          </p>
+          <blockquote>
+            "The useful part is what happens after the call: clean notes,
+            decisions, and next steps without surrendering the raw audio."
+          </blockquote>
+        </div>
+        <div class="platform-panel" aria-label="Supported meeting sources">
+          <div class="platform-tile">System audio</div>
+          <div class="platform-tile">Microphone</div>
+          <div class="platform-tile">Calendar</div>
+          <div class="platform-tile">Recipes</div>
+          <div class="platform-tile">Local DB</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="split-section reverse">
+      <div class="container split-grid">
+        <div class="template-window" aria-label="Audire notes recipe preview">
+          <div class="template-sidebar">
+            <span class="active">Customer discovery</span>
+            <span>1 on 1</span>
+            <span>User interview</span>
+            <span>Standup</span>
+          </div>
+          <div class="template-doc">
+            <h3>Casey &lt;&gt; Rahul 1 on 1</h3>
+            <p class="doc-meta">Today 12:25 PM - Jim, Michaela +5</p>
+            <h4>What's the latest</h4>
+            <span class="skeleton long"></span>
+            <span class="skeleton"></span>
+            <h4>Feedback for them</h4>
+            <span class="skeleton long"></span>
+            <span class="skeleton mid"></span>
+            <h4>Next milestone</h4>
+            <span class="skeleton"></span>
+          </div>
+        </div>
+        <div class="copy-block">
+          <h2>Get notes in the format your team needs.</h2>
+          <p>
+            Turn the same transcript into a customer interview, action list,
+            executive summary, or weekly recap. Recipes are reusable prompts
+            that run with the model provider you choose.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy" class="privacy-section">
+      <div class="container privacy-grid">
+        <div class="copy-block">
+          <h2>Privacy, by construction.</h2>
+          <p>
+            Audire is designed around a simple constraint: there is nowhere in
+            the app for stored audio to live. The transcript can become useful
+            notes, but the raw audio stream is discarded.
+          </p>
+        </div>
+        <div class="privacy-list">
+          <div>
+            <h3>Audio never persisted</h3>
+            <p>No local audio column, no cloud upload, no sync path for recordings.</p>
+          </div>
+          <div>
+            <h3>Your provider accounts</h3>
+            <p>ASR and LLM calls use keys you supply and go directly from your device.</p>
+          </div>
+          <div>
+            <h3>No telemetry</h3>
+            <p>No analytics, no crash reporter, no first-run beacon.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="action-section">
+      <div class="container split-grid">
+        <div class="copy-block">
+          <h2>Put your meetings to work.</h2>
+          <p>
+            Ask for a follow-up email, extract open questions, write a blog
+            post, or summarize decisions. Audire keeps these workflows close
+            to your own transcript and notes.
+          </p>
+        </div>
+        <div class="assistant-panel" aria-label="Audire assistant preview">
+          <div class="assistant-doc">
+            <h3>Their requirements</h3>
+            <ul>
+              <li>Secure information sharing</li>
+              <li>Good mobile handoff</li>
+              <li>Integrates with existing workflows</li>
+            </ul>
+            <h3>Decision criteria</h3>
+            <ul>
+              <li>Ease of use for non-technical staff</li>
+              <li>Strong security and compliance posture</li>
+            </ul>
+          </div>
+          <div class="prompt-box">
+            <span>Ask Audire anything</span>
+            <button type="button" aria-label="Submit prompt">-&gt;</button>
+          </div>
+          <div class="prompt-cloud" aria-hidden="true">
+            <span>List next actions</span>
+            <span>What changed?</span>
+            <span>Draft follow-up</span>
+            <span>Open questions</span>
+            <span>Write recap</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="download-section">
+      <div class="container">
+        <div class="download-card">
+          <div class="window-bar">
+            <span class="window-dot dot-red"></span>
+            <span class="window-dot dot-yellow"></span>
+            <span class="window-dot dot-green"></span>
+          </div>
+          <h2>Ready for calmer, more private meeting notes?</h2>
+          <p>Try Audire with a few meetings. It is free to get started.</p>
+          <div class="download-actions">
+            <a class="btn btn-primary" href="https://github.com/Intelli-Holdings/audire/releases/latest" rel="noopener">Download Audire</a>
+            <a class="btn btn-secondary" href="https://github.com/Intelli-Holdings/audire" rel="noopener">View on GitHub</a>
+          </div>
+          <div id="smart-download-more" class="release-list">
+            <p>
+              <a href="https://github.com/Intelli-Holdings/audire/releases" rel="noopener">View all releases on GitHub -&gt;</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="calendar" class="calendar-section">
+      <div class="container prose">
+        <h2>Why Audire requests Google Calendar access</h2>
+        <p>
+          Audire integrates with Google Calendar to detect meetings you have
+          scheduled and offer a one-click way to start a transcription session
+          when one begins. The integration is read-only and uses the smallest
+          set of scopes required to do this.
+        </p>
+        <table class="scope-table">
+          <thead>
+            <tr><th>Scope</th><th>Why Audire requests it</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>calendar.events.freebusy</code></td>
+              <td>Read free/busy windows on calendars you have shared with the user, so Audire can show your upcoming meeting load on the home screen.</td>
+            </tr>
+            <tr>
+              <td><code>calendar.events.public.readonly</code></td>
+              <td>Read events on public calendars the user follows, such as team broadcast calendars, to surface them as upcoming in the app.</td>
+            </tr>
+            <tr>
+              <td><code>calendar.settings.readonly</code></td>
+              <td>Read your Calendar timezone and working-hours settings so Audire renders meeting times correctly on your device.</td>
+            </tr>
+            <tr>
+              <td><code>calendar.freebusy</code></td>
+              <td>Read your own availability so Audire can detect a meeting that is starting and prompt to begin a transcription session.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Audire never writes to your calendar, never reads private event
+          contents beyond what these scopes return, and never shares calendar
+          data with any third party. Calendar data stays on your device.
+          The full data flow is described in the
+          <a href="/privacy">privacy policy</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-shell">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Audire</span>
+          </a>
+          <p>
+            Local-first meeting transcription. Built by Intelli Holdings Inc,
+            open source on GitHub.
+          </p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="https://github.com/Intelli-Holdings/audire/releases" rel="noopener">Download</a></li>
+            <li><a href="https://github.com/Intelli-Holdings/audire" rel="noopener">Source</a></li>
+            <li><a href="#features">Features</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy policy</a></li>
+            <li><a href="/terms">Terms of service</a></li>
+            <li><a href="mailto:werefast2000@gmail.com">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-wordmark" aria-hidden="true">audire</div>
+      <div class="footer-fineprint">
+        <span>&copy; <span id="year"></span> Intelli Holdings Inc. Audire is open source.</span>
+        <span>No telemetry. Audio never persisted.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+
+  <script type="module">
+    import { mountSmartDownload } from '/src/download.js';
+    mountSmartDownload(document.getElementById('hero-download'));
+  </script>
+</body>
+</html>

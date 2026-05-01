@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy policy — Audire</title>
+  <meta name="description" content="Audire privacy policy. Audio is never persisted, anywhere. BYOK. No telemetry." />
+
+  <meta property="og:title" content="Privacy policy — Audire" />
+  <meta property="og:description" content="Audio is never persisted, anywhere. BYOK. No telemetry." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://audire.app/privacy" />
+  <meta property="og:image" content="https://audire.app/logo.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="google-site-verification" content="" />
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="canonical" href="https://audire.app/privacy" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container site-header-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Audire</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#download">Download</a>
+        <a href="https://github.com/Intelli-Holdings/audire" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section style="padding: 64px 0 24px;">
+      <div class="container prose">
+        <h1>Privacy policy</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin: 4px 0 28px;">
+          Last updated: <time datetime="2026-05-01">May 1, 2026</time>
+        </p>
+
+        <p>
+          Audire is a desktop application published by <strong>Intelli Holdings Inc</strong>
+          ("we", "us", "Intelli Holdings"). This policy describes what data the
+          application processes, what we do with it, and the choices you have.
+          It is written to be accurate and short; we will update it whenever
+          the application's behaviour changes and bump the date above.
+        </p>
+
+        <h2>1. The short version</h2>
+        <ul>
+          <li><strong>Audio is never persisted, anywhere.</strong> Not on your device, not on our servers, not ever. We do not have any servers that receive your audio.</li>
+          <li><strong>Transcripts and notes stay on your device</strong> in an encrypted local database, unless you explicitly opt in to Audire Sync.</li>
+          <li><strong>You bring your own keys</strong> for transcription (Deepgram, AssemblyAI) and language-model features (OpenAI, Anthropic, Google Gemini, Ollama). Audire passes data directly from your device to those providers under your account, using your key.</li>
+          <li><strong>We do not collect telemetry, analytics, or crash reports.</strong> The application does not phone home.</li>
+          <li><strong>We do not sell or share your data with anyone.</strong> There is no advertising business.</li>
+        </ul>
+
+        <h2>2. Data Audire processes locally</h2>
+        <p>
+          Audire processes the following data on your device. None of this is
+          transmitted to Intelli Holdings.
+        </p>
+        <ul>
+          <li><strong>Audio frames</strong> from your microphone and selected system audio source, held in a small in-memory ring buffer that feeds the streaming transcription provider you have selected. The buffer is overwritten continuously and discarded when you stop recording.</li>
+          <li><strong>Text transcripts</strong> returned by the transcription provider, stored locally in an encrypted SQLite database (SQLCipher) with a key kept in your operating system's secure credential vault.</li>
+          <li><strong>Notes you write</strong> inside the app, stored in the same encrypted database.</li>
+          <li><strong>Settings</strong> such as your preferred language-model provider, calendar connection state, and theme, also kept in the encrypted database.</li>
+          <li><strong>API keys</strong> you have supplied for ASR or LLM providers, stored in your operating system's keyring (Windows Credential Manager, macOS Keychain, or libsecret on Linux). Keys are read in the application's Rust core only and are never returned to the user interface layer.</li>
+        </ul>
+
+        <h2>3. Data sent to third-party providers, on your behalf</h2>
+        <p>
+          When you choose to use a feature that depends on a third-party
+          provider, Audire sends data <em>directly from your device</em> to
+          that provider under your account, using your key. Intelli Holdings
+          does not see this traffic and does not retain a copy.
+        </p>
+        <ul>
+          <li><strong>ASR providers</strong> (Deepgram, AssemblyAI): receive the audio stream while you are recording. Audire sends each provider only what they need to transcribe; the connection is made over TLS (<code>wss://</code>). The provider's own privacy policy and data-retention practices govern what happens after that.</li>
+          <li><strong>LLM providers</strong> (OpenAI, Anthropic, Google Gemini, Ollama): receive the prompt and the transcript context required to run the recipe you triggered. The connection is over TLS. For Ollama, the connection is to the endpoint you configured (typically your own machine).</li>
+          <li><strong>Calendar providers</strong> (Google, Microsoft): see the section on Google API services below.</li>
+        </ul>
+        <p>
+          Audire does not include a "default" provider that pre-fills any keys
+          for you. Until you supply a key, the corresponding feature is
+          disabled.
+        </p>
+
+        <h2>4. Google API services and limited use</h2>
+        <p>
+          Audire requests the following Google Calendar scopes to detect
+          meetings on your calendar so you can start a transcription session
+          in one click:
+        </p>
+        <ul>
+          <li><code>https://www.googleapis.com/auth/calendar.events.freebusy</code> — read free/busy information on calendars you have shared.</li>
+          <li><code>https://www.googleapis.com/auth/calendar.events.public.readonly</code> — read events on public calendars you follow.</li>
+          <li><code>https://www.googleapis.com/auth/calendar.settings.readonly</code> — read your Calendar timezone and working-hours settings to render meeting times correctly.</li>
+          <li><code>https://www.googleapis.com/auth/calendar.freebusy</code> — read your own free/busy availability.</li>
+        </ul>
+        <p>
+          <strong>Limited use disclosure:</strong> Audire's use and transfer
+          of information received from Google APIs to any other app will
+          adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API Services User Data Policy</a>,
+          including the Limited Use requirements. Specifically:
+        </p>
+        <ul>
+          <li>We use Google user data only for the user-facing features described above.</li>
+          <li>We do not transfer Google user data to others except as needed to provide or improve those features, comply with applicable law, or as part of a merger, acquisition, or sale of assets with notice.</li>
+          <li>We do not use Google user data to serve advertisements.</li>
+          <li>We do not allow humans to read Google user data unless we have your affirmative agreement, the data is needed for security purposes (such as investigating abuse), to comply with applicable law, or it is aggregated and used for internal operations under privacy-preserving safeguards.</li>
+        </ul>
+        <p>
+          Calendar data fetched from Google is stored only on your device, in
+          the same encrypted local database as the rest of Audire's state.
+          You can disconnect Google Calendar at any time from
+          Settings → Calendar, which deletes the stored OAuth tokens from
+          your OS keyring and removes any cached calendar data.
+        </p>
+
+        <h2>5. Audire Sync (optional, opt-in)</h2>
+        <p>
+          Audire Sync is a separate, optional service operated by Intelli
+          Holdings. If, and only if, you create a Sync account and sign in,
+          the following additional processing happens:
+        </p>
+        <ul>
+          <li>Your account email and a hashed authentication credential are stored on our servers so we can authenticate you on subsequent sign-ins.</li>
+          <li>Transcripts and notes you choose to sync are <strong>end-to-end encrypted on your device</strong> using a key derived from your passphrase before being uploaded. Our servers store ciphertext only and do not have the key.</li>
+          <li>Sync metadata (timestamps, vault identifiers, operation log offsets) is stored in plaintext so we can route updates between your devices. This metadata reveals <em>that</em> a vault was edited but not <em>what</em> was edited.</li>
+          <li><strong>Audio is never synced</strong>, because audio is never saved on your device in the first place.</li>
+        </ul>
+        <p>
+          You can delete your Sync account at any time. Deletion removes all
+          ciphertext and metadata associated with your account from our
+          servers within 30 days. Locally cached data on your device is
+          unaffected.
+        </p>
+        <p>
+          Audire Sync is <strong>not yet generally available</strong> at the
+          time of this revision. When it ships, this section will be updated
+          with the operational details (recovery key flow, sub-processors,
+          retention policy).
+        </p>
+
+        <h2>6. What we do not collect</h2>
+        <ul>
+          <li>No analytics or product telemetry.</li>
+          <li>No crash reports phoned home automatically.</li>
+          <li>No user identifiers, advertising IDs, or fingerprinting.</li>
+          <li>No data sold or licensed to anyone.</li>
+        </ul>
+
+        <h2>7. Children's privacy</h2>
+        <p>
+          Audire is not directed at children under 13. We do not knowingly
+          process data from children under 13.
+        </p>
+
+        <h2>8. International transfers</h2>
+        <p>
+          Audire's desktop application processes data on your device wherever
+          you are. If you use Audire Sync, your encrypted data may be stored
+          on servers located in the United States or in regions selected for
+          performance and availability. The data we hold is ciphertext your
+          device produced; we cannot read it.
+        </p>
+
+        <h2>9. Your rights</h2>
+        <p>
+          Depending on where you live, you may have rights under laws such as
+          the GDPR (European Economic Area, United Kingdom) or the CCPA / CPRA
+          (California) to access, correct, delete, or export the personal
+          information we hold about you, and to object to certain processing.
+        </p>
+        <ul>
+          <li><strong>Local data:</strong> all of Audire's local data lives in the encrypted database on your device. You can delete it at any time by removing the app's data directory; the application provides a "Reset all data" action in Settings → Privacy.</li>
+          <li><strong>Sync data (if you sign in):</strong> you can request access or deletion at <a href="mailto:werefast2000@gmail.com">werefast2000@gmail.com</a>. We will respond within 30 days.</li>
+          <li><strong>Calendar tokens:</strong> revoke at any time via Settings → Calendar inside the app, or directly from your <a href="https://myaccount.google.com/permissions" rel="noopener">Google account permissions page</a> / Microsoft account portal.</li>
+        </ul>
+
+        <h2>10. Security</h2>
+        <p>
+          We follow practices that match a privacy-first product: encrypted
+          local storage, OS keyring for secrets, TLS for all outbound traffic,
+          end-to-end encryption for any data leaving the device through Sync,
+          and no use of analytics SDKs that have historically been
+          fingerprinting vectors. No system is perfectly secure; if you
+          discover a vulnerability, please email
+          <a href="mailto:werefast2000@gmail.com">werefast2000@gmail.com</a>.
+        </p>
+
+        <h2>11. Changes to this policy</h2>
+        <p>
+          We will update this page when Audire's behaviour changes or when
+          we add new data flows (notably when Audire Sync goes live). We
+          will bump the "Last updated" date at the top, and for material
+          changes (such as new categories of data being processed) we will
+          surface the change in-app on first launch after the update.
+        </p>
+
+        <h2>12. Contact</h2>
+        <p>
+          Questions, deletion requests, or anything else:
+          <a href="mailto:werefast2000@gmail.com">werefast2000@gmail.com</a>.
+        </p>
+        <p>
+          Postal address available on request from the email above.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Audire</span>
+          </a>
+          <p style="margin: 12px 0 0; max-width: 320px;">
+            Local-first meeting transcription. Built by Intelli Holdings Inc, open source on GitHub.
+          </p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="/#download">Download</a></li>
+            <li><a href="https://github.com/Intelli-Holdings/audire" rel="noopener">Source</a></li>
+            <li><a href="/#features">Features</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy policy</a></li>
+            <li><a href="/terms">Terms of service</a></li>
+            <li><a href="mailto:werefast2000@gmail.com">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-fineprint">
+        <span>© <span id="year"></span> Intelli Holdings Inc. Audire is open source.</span>
+        <span>Made with care, no telemetry.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
