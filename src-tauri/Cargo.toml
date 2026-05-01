@@ -56,6 +56,15 @@ ring = "0.17"
 futures-util = "0.3"
 http = "1"
 
+# Sync crypto: Argon2id KEK, X25519 sealed-box wrap, XChaCha20-Poly1305 vault keys.
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc", "stream"] }
+zeroize = { version = "1", features = ["derive"] }
+hex = { version = "0.4", features = ["serde"] }
+hkdf = "0.12"
+sha2 = "0.10"
+
 # Audio
 cpal = "0.15"
 ringbuf = "0.4"

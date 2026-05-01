@@ -569,12 +569,36 @@ pub fn update_folder(
 ) -> Result<()> {
     state
         .store
-        .update_folder(folder_id, &name, &kind, color.as_deref())
+        .update_folder(folder_id, &name, &kind, color.as_deref())?;
+    if state.sync_runtime.is_unlocked() {
+        let _ = state.sync_runtime.with_kek(|kek| {
+            crate::sync::api::enqueue_folder_upsert(&state.store, folder_id, kek)
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn delete_folder(state: tauri::State<'_, AppState>, folder_id: i64) -> Result<()> {
+    if state.sync_runtime.is_unlocked() {
+        let _ = state.sync_runtime.with_kek(|kek| {
+            crate::sync::api::enqueue_folder_delete(&state.store, folder_id, kek)
+        });
+    }
     state.store.delete_folder(folder_id)
+}
+
+/// `share_folder_with_org` — bind a folder to an org's default vault
+/// and enqueue the initial folder + child note ops so other org
+/// members see the shared content.
+#[tauri::command]
+pub fn share_folder_with_org(
+    state: tauri::State<'_, AppState>,
+    folder_id: i64,
+    org_id: String,
+) -> Result<String> {
+    let kek = state.sync_runtime.with_kek(|kek| Ok(kek.clone()))?;
+    crate::sync::api::share_folder_with_org(&state.store, folder_id, &org_id, &kek)
 }
 
 #[tauri::command]
@@ -630,7 +654,13 @@ pub fn update_standalone_note(
     title: String,
     text: String,
 ) -> Result<()> {
-    state.store.update_standalone_note(note_id, &title, &text)
+    state.store.update_standalone_note(note_id, &title, &text)?;
+    if state.sync_runtime.is_unlocked() {
+        let _ = state.sync_runtime.with_kek(|kek| {
+            crate::sync::api::enqueue_note_upsert(&state.store, note_id, &title, &text, kek)
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -640,6 +670,11 @@ pub fn list_standalone_notes(state: tauri::State<'_, AppState>) -> Result<Vec<St
 
 #[tauri::command]
 pub fn delete_standalone_note(state: tauri::State<'_, AppState>, note_id: i64) -> Result<()> {
+    if state.sync_runtime.is_unlocked() {
+        let _ = state.sync_runtime.with_kek(|kek| {
+            crate::sync::api::enqueue_note_delete(&state.store, note_id, kek)
+        });
+    }
     state.store.delete_standalone_note(note_id)
 }
 
@@ -915,4 +950,179 @@ pub fn stop_detector(state: tauri::State<'_, AppState>) -> Result<()> {
         let _ = handle.stop.send(());
     }
     Ok(())
+}
+
+// ---- Cloud sync (optional) ----
+
+#[tauri::command]
+pub fn sync_account_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::sync::AccountStatus> {
+    crate::sync::account::account_status(&state.store)
+}
+
+#[tauri::command]
+pub async fn sync_sign_up(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: crate::sync::SignUpRequest,
+) -> Result<crate::sync::account::RecoveryReveal> {
+    let reveal = crate::sync::account::sign_up(&state.store, &request).await?;
+    // After sign-up the KEK is the one we just derived from the
+    // passphrase. Stash it so the worker manager can immediately start.
+    let salt: Vec<u8> = state
+        .store
+        .with_conn(|c| {
+            c.query_row(
+                "SELECT kek_salt FROM sync_account WHERE id = 1",
+                [],
+                |r| r.get::<_, Vec<u8>>(0),
+            )
+        })
+        .map_err(|e| ParaError::Db(format!("read kek_salt: {e}")))?;
+    let kek = crate::sync::crypto::derive_kek(&request.passphrase, &salt)
+        .map_err(|e| ParaError::Other(e.to_string()))?;
+    state.sync_runtime.unlock(kek);
+    state
+        .sync_runtime
+        .start_workers(&state.rt, &app, &state.store, &request.server_url, &request.access_token)?;
+    Ok(reveal)
+}
+
+#[tauri::command]
+pub async fn sync_sign_in(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: crate::sync::SignInRequest,
+) -> Result<()> {
+    crate::sync::account::sign_in(&state.store, &request).await?;
+    sync_unlock_inner(&app, &state, &request.passphrase)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sync_sign_out(state: tauri::State<'_, AppState>) -> Result<()> {
+    state.sync_runtime.shutdown();
+    crate::sync::account::sign_out(&state.store)
+}
+
+#[tauri::command]
+pub fn sync_unlock(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    passphrase: String,
+) -> Result<()> {
+    sync_unlock_inner(&app, &state, &passphrase)
+}
+
+fn sync_unlock_inner(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    passphrase: &str,
+) -> Result<()> {
+    let row = state
+        .store
+        .with_conn(|c| {
+            c.query_row(
+                "SELECT kek_salt, server_url, access_token FROM sync_account WHERE id = 1",
+                [],
+                |r| Ok((
+                    r.get::<_, Vec<u8>>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                )),
+            )
+        })
+        .map_err(|e| ParaError::Db(format!("read sync_account: {e}")))?;
+    let (salt, server_url, access_token_opt) = row;
+    let access_token = access_token_opt
+        .ok_or_else(|| ParaError::InvalidState("no access token saved".into()))?;
+    let kek = crate::sync::crypto::derive_kek(passphrase, &salt)
+        .map_err(|e| ParaError::Other(e.to_string()))?;
+    // Verify the passphrase works by attempting to unwrap the
+    // identity key.
+    crate::sync::account::unwrap_identity_secret(&state.store, &kek)?;
+    state.sync_runtime.unlock(kek);
+    state
+        .sync_runtime
+        .start_workers(&state.rt, app, &state.store, &server_url, &access_token)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_refresh(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::sync::vaults::LocalVaultRow>> {
+    let (server_url, access_token) = read_account_endpoint(&state)?;
+    let vaults = crate::sync::api::refresh_vaults(&state.store, &server_url, &access_token).await?;
+    if state.sync_runtime.is_unlocked() {
+        state
+            .sync_runtime
+            .start_workers(&state.rt, &app, &state.store, &server_url, &access_token)?;
+    }
+    Ok(vaults)
+}
+
+#[tauri::command]
+pub async fn sync_create_org(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    args: crate::sync::api::CreateOrgArgs,
+) -> Result<crate::sync::api::CreateOrgOutcome> {
+    let (server_url, access_token) = read_account_endpoint(&state)?;
+    // Need the KEK to wrap the new vault key for self.
+    let kek = state.sync_runtime.with_kek(|kek| Ok(kek.clone()))?;
+    let outcome =
+        crate::sync::api::create_org(&state.store, &server_url, &access_token, &kek, &args).await?;
+    state
+        .sync_runtime
+        .start_workers(&state.rt, &app, &state.store, &server_url, &access_token)?;
+    Ok(outcome)
+}
+
+#[tauri::command]
+pub async fn sync_invite_to_org(
+    state: tauri::State<'_, AppState>,
+    args: crate::sync::api::InviteToOrgArgs,
+) -> Result<crate::sync::api::InviteToOrgOutcome> {
+    let (server_url, access_token) = read_account_endpoint(&state)?;
+    let kek = state.sync_runtime.with_kek(|kek| Ok(kek.clone()))?;
+    crate::sync::api::invite_to_org(&state.store, &server_url, &access_token, &kek, &args).await
+}
+
+#[tauri::command]
+pub fn sync_list_orgs(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::sync::orgs::LocalOrgRow>> {
+    crate::sync::orgs::list(&state.store)
+}
+
+#[tauri::command]
+pub fn sync_list_vaults(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::sync::vaults::LocalVaultRow>> {
+    crate::sync::vaults::list(&state.store)
+}
+
+#[tauri::command]
+pub fn sync_running_vaults(state: tauri::State<'_, AppState>) -> Result<Vec<String>> {
+    Ok(state.sync_runtime.running_vaults())
+}
+
+fn read_account_endpoint(state: &tauri::State<'_, AppState>) -> Result<(String, String)> {
+    let row: (String, Option<String>) = state
+        .store
+        .with_conn(|c| {
+            c.query_row(
+                "SELECT server_url, access_token FROM sync_account WHERE id = 1",
+                [],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+        })
+        .map_err(|e| ParaError::Db(format!("read sync_account: {e}")))?;
+    let access = row
+        .1
+        .ok_or_else(|| ParaError::InvalidState("no access token saved".into()))?;
+    Ok((row.0, access))
 }

@@ -6,6 +6,15 @@ import { showToast } from '../toast.js';
 let appState = null;
 let currentSection = 'preferences';
 
+/**
+ * Programmatically pre-select a section before the next render. Used by other
+ * views (e.g. the BYOK pre-flight in sidebar.js) to deep-link into a specific
+ * settings panel without hardcoding the URL hash scheme.
+ */
+export function setSettingsSection(name) {
+  currentSection = name;
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str ?? '';
@@ -13,11 +22,46 @@ function escapeHtml(str) {
 }
 
 const API_PROVIDERS = [
-  { id: 'deepgram', label: 'Deepgram', desc: 'Flux v2 streaming ASR', placeholder: 'dg_\u2026' },
-  { id: 'assemblyai', label: 'AssemblyAI', desc: 'U3 Pro streaming ASR', placeholder: 'Key\u2026' },
-  { id: 'openai', label: 'OpenAI', desc: 'LLM recipes', placeholder: 'sk-\u2026' },
-  { id: 'anthropic', label: 'Anthropic', desc: 'LLM recipes', placeholder: 'sk-ant-\u2026' },
-  { id: 'gemini', label: 'Google Gemini', desc: 'LLM recipes', placeholder: 'AIza\u2026' },
+  {
+    id: 'deepgram',
+    label: 'Deepgram',
+    desc: 'Flux v2 streaming ASR',
+    placeholder: 'dg_\u2026',
+    kind: 'asr',
+    signupUrl: 'https://console.deepgram.com/signup',
+  },
+  {
+    id: 'assemblyai',
+    label: 'AssemblyAI',
+    desc: 'U3 Pro streaming ASR',
+    placeholder: 'Key\u2026',
+    kind: 'asr',
+    signupUrl: 'https://www.assemblyai.com/dashboard/signup',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    desc: 'LLM recipes',
+    placeholder: 'sk-\u2026',
+    kind: 'llm',
+    signupUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    desc: 'LLM recipes',
+    placeholder: 'sk-ant-\u2026',
+    kind: 'llm',
+    signupUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    desc: 'LLM recipes',
+    placeholder: 'AIza\u2026',
+    kind: 'llm',
+    signupUrl: 'https://aistudio.google.com/apikey',
+  },
 ];
 
 const CALENDAR_PROVIDERS = [
@@ -73,6 +117,9 @@ export async function renderSettingsView() {
         <button class="settings-nav-item ${currentSection === 'detection' ? 'active' : ''}" data-section="detection">Detection</button>
         <button class="settings-nav-item ${currentSection === 'ai_provider' ? 'active' : ''}" data-section="ai_provider">AI Provider</button>
 
+        <div class="settings-nav-section-label">Sync</div>
+        <button class="settings-nav-item ${currentSection === 'account' ? 'active' : ''}" data-section="account">Account</button>
+
         <div class="settings-nav-section-label">Info</div>
         <button class="settings-nav-item ${currentSection === 'privacy' ? 'active' : ''}" data-section="privacy">Privacy</button>
         <button class="settings-nav-item ${currentSection === 'about' ? 'active' : ''}" data-section="about">About</button>
@@ -116,6 +163,9 @@ async function renderSection() {
       break;
     case 'ai_provider':
       await renderAiProviderSection(panel);
+      break;
+    case 'account':
+      await renderAccountSection(panel);
       break;
     case 'privacy':
       renderPrivacySection(panel);
@@ -280,17 +330,19 @@ async function renderConnectorsSection(panel) {
     }
   }
 
-  const keyRowsHtml = API_PROVIDERS.map(p => {
+  const renderRow = (p) => {
     const hasKey = keyStatuses[p.id];
     const source = keySources[p.id];
     return `
       <div class="key-row">
         <div class="key-row-info">
           <span class="key-row-label">${escapeHtml(p.label)}</span>
+          <span class="key-row-desc">${escapeHtml(p.desc)}</span>
           <span class="key-row-status ${hasKey ? 'set' : ''}" id="status-${p.id}">
             ${hasKey ? '\u25CF Set' : 'Not set'}
           </span>
           ${source ? `<span class="key-row-source">${escapeHtml(source)}</span>` : ''}
+          ${!hasKey && p.signupUrl ? `<a class="key-row-signup" href="${escapeHtml(p.signupUrl)}" target="_blank" rel="noopener">Get a key \u2192</a>` : ''}
         </div>
         <div class="key-row-actions">
           <input
@@ -305,15 +357,50 @@ async function renderConnectorsSection(panel) {
         </div>
       </div>
     `;
-  }).join('');
+  };
+
+  const asrProviders = API_PROVIDERS.filter((p) => p.kind === 'asr');
+  const llmProviders = API_PROVIDERS.filter((p) => p.kind === 'llm');
+  const hasAnyAsr = asrProviders.some((p) => keyStatuses[p.id]);
+  const hasAnyLlm = llmProviders.some((p) => keyStatuses[p.id]);
+
+  // First-run empty state \u2014 shown when the user has no keys at all. Explains
+  // BYOK in plain terms and links to provider signup pages so the path from
+  // "I just installed Audire" to "I have a transcript" is unambiguous.
+  const emptyStateHtml = (!hasAnyAsr && !hasAnyLlm) ? `
+    <div class="byok-empty-state">
+      <h3>Bring your own keys to get started</h3>
+      <p>
+        Audire never charges for AI usage. Transcription and language-model
+        features run on your own provider account using your own API key, so
+        your audio and prompts go straight from this device to the provider
+        you choose &mdash; never through our servers.
+      </p>
+      <p>
+        You'll need at least one transcription key (Deepgram or AssemblyAI)
+        before you can record. Pick whichever you prefer; both have free tiers.
+      </p>
+    </div>
+  ` : '';
 
   panel.innerHTML = `
     <h2 class="settings-content-title">API Keys</h2>
     <p class="settings-section-desc">
       Keys are stored in your OS keyring (macOS Keychain / Windows Credential Manager /
-      Linux Secret Service). They never leave the native layer.
+      Linux Secret Service). They never leave the native layer and are never
+      returned to the WebView.
     </p>
-    ${keyRowsHtml}
+    ${emptyStateHtml}
+    <h3 class="settings-subsection-title">
+      Transcription
+      <span class="settings-subsection-hint">${hasAnyAsr ? 'Required to record &middot; you have at least one key' : 'Required to record'}</span>
+    </h3>
+    ${asrProviders.map(renderRow).join('')}
+    <h3 class="settings-subsection-title" style="margin-top: var(--space-5);">
+      Language models
+      <span class="settings-subsection-hint">${hasAnyLlm ? 'Optional &middot; powers AI recipes' : 'Optional &middot; powers AI recipes'}</span>
+    </h3>
+    ${llmProviders.map(renderRow).join('')}
   `;
 
   bindKeyEvents();
@@ -501,6 +588,293 @@ function renderAboutSection(panel) {
       </p>
     </div>
   `;
+}
+
+async function renderAccountSection(panel) {
+  let status = null;
+  try {
+    status = await invoke('sync_account_status');
+  } catch (e) {
+    panel.innerHTML = `<h2 class="settings-content-title">Account</h2>
+      <div class="settings-info-card"><p>Failed to read account status: ${escapeHtml(String(e))}</p></div>`;
+    return;
+  }
+
+  if (status.mode !== 'cloud') {
+    renderAccountSignedOut(panel);
+    return;
+  }
+
+  let orgs = [];
+  let vaults = [];
+  let runningVaults = [];
+  try {
+    orgs = await invoke('sync_list_orgs');
+    vaults = await invoke('sync_list_vaults');
+    runningVaults = await invoke('sync_running_vaults');
+  } catch { /* table reads can be empty before unlock */ }
+
+  panel.innerHTML = `
+    <h2 class="settings-content-title">Account</h2>
+    <p class="settings-section-desc">
+      Audire Sync is end-to-end encrypted. The server only stores ciphertext &mdash;
+      it can't read your notes, and audio is never uploaded.
+    </p>
+
+    <div class="settings-info-card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:600;">${escapeHtml(status.email || '')}</div>
+          <div style="font-size:var(--text-xs); color:var(--color-text-secondary);">
+            Server: ${escapeHtml(status.server_url || '')}
+          </div>
+          <div style="font-size:var(--text-xs); color:var(--color-text-secondary);">
+            User ID: <code>${escapeHtml(status.user_id || '')}</code>
+          </div>
+        </div>
+        <button class="btn btn-secondary" id="sync-sign-out">Sign out</button>
+      </div>
+    </div>
+
+    <div id="sync-unlock-row" class="settings-info-card" style="margin-top:var(--space-3); display:none;">
+      <h3 style="margin:0 0 var(--space-2) 0;">Unlock</h3>
+      <p style="color:var(--color-text-secondary); font-size:var(--text-xs);">
+        Re-enter your passphrase to unlock vault keys for this session.
+      </p>
+      <div style="display:flex; gap:var(--space-2); margin-top:var(--space-2);">
+        <input type="password" class="inline-input" id="sync-unlock-input" placeholder="Passphrase" style="flex:1;" />
+        <button class="btn btn-primary" id="sync-unlock-btn">Unlock</button>
+      </div>
+    </div>
+
+    <div class="settings-info-card" style="margin-top:var(--space-3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">Organizations</h3>
+        <button class="btn btn-secondary" id="sync-create-org">New organization</button>
+      </div>
+      <div id="sync-orgs-list" style="margin-top:var(--space-2);">
+        ${orgs.length === 0
+          ? '<p style="color:var(--color-text-secondary); font-size:var(--text-xs);">You aren\'t in any organizations yet. Create one to share notes with your team.</p>'
+          : orgs.map(o => `
+            <div class="org-row" data-org-id="${escapeHtml(o.org_id)}" style="display:flex; justify-content:space-between; align-items:center; padding:var(--space-2) 0; border-bottom:1px solid var(--color-border);">
+              <div>
+                <div style="font-weight:600;">${escapeHtml(o.name)}</div>
+                <div style="font-size:var(--text-xs); color:var(--color-text-secondary);">Role: ${escapeHtml(o.role)}</div>
+              </div>
+              <div style="display:flex; gap:var(--space-2);">
+                <input type="email" class="inline-input invite-email" placeholder="Invite by email" style="min-width:220px;" />
+                <button class="btn btn-secondary" data-invite-org="${escapeHtml(o.org_id)}">Invite</button>
+              </div>
+            </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="settings-info-card" style="margin-top:var(--space-3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">Sync status</h3>
+        <button class="btn btn-secondary" id="sync-refresh-btn">Refresh</button>
+      </div>
+      <div id="sync-vaults-list" style="margin-top:var(--space-2);">
+        ${vaults.length === 0
+          ? '<p style="color:var(--color-text-secondary); font-size:var(--text-xs);">No shared folders yet.</p>'
+          : vaults.map(v => {
+              const isRunning = runningVaults.includes(v.vault_id);
+              return `<div style="padding:var(--space-2) 0; border-bottom:1px solid var(--color-border);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <div style="font-weight:600;">${escapeHtml(v.name || 'Vault ' + v.vault_id.slice(0,8))}</div>
+                    <div style="font-size:var(--text-xs); color:var(--color-text-secondary);">
+                      Cursor: ${v.last_op_id_applied} / ${v.last_op_id_remote}
+                    </div>
+                  </div>
+                  <span class="sync-status-pill" data-vault="${escapeHtml(v.vault_id)}"
+                    style="font-size:var(--text-xs); padding: 2px 8px; border-radius:999px; background:${isRunning ? 'var(--color-accent-soft)' : 'var(--color-surface-2)'};">
+                    ${isRunning ? 'live' : 'idle'}
+                  </span>
+                </div>
+              </div>`;
+            }).join('')}
+      </div>
+    </div>
+  `;
+
+  bindAccountEvents(panel, status);
+
+  // Subscribe to live sync events to update the status pill.
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    if (!window.__audireSyncListenerInstalled) {
+      window.__audireSyncListenerInstalled = true;
+      listen('audire://sync_status', (ev) => {
+        const pill = document.querySelector(`.sync-status-pill[data-vault="${ev.payload.vault_id}"]`);
+        if (pill) {
+          pill.textContent = ev.payload.state;
+        }
+      });
+    }
+  } catch { /* event API may not be available in non-Tauri builds */ }
+}
+
+function renderAccountSignedOut(panel) {
+  panel.innerHTML = `
+    <h2 class="settings-content-title">Account</h2>
+    <p class="settings-section-desc">
+      Audire Sync is optional. Sign in to share notes with an organization. Your
+      audio is never uploaded &mdash; only encrypted notes and folder metadata.
+    </p>
+
+    <div class="settings-info-card">
+      <h3 style="margin:0 0 var(--space-2) 0;">Sign up</h3>
+      <p style="color:var(--color-text-secondary); font-size:var(--text-xs);">
+        Connect this device to a sync server. If you forget your passphrase, the
+        recovery key shown after sign-up is the only way to recover access.
+      </p>
+
+      <div style="display:flex; flex-direction:column; gap:var(--space-2); margin-top:var(--space-2);">
+        <input type="text" class="inline-input" id="sync-server-url" placeholder="https://audire-server.fly.dev" />
+        <input type="email" class="inline-input" id="sync-email" placeholder="you@example.com" />
+        <input type="text" class="inline-input" id="sync-access-token" placeholder="Access token from the sign-in flow" />
+        <input type="password" class="inline-input" id="sync-passphrase" placeholder="Passphrase (used for end-to-end encryption)" />
+        <input type="password" class="inline-input" id="sync-passphrase-confirm" placeholder="Confirm passphrase" />
+        <div style="display:flex; gap:var(--space-2); justify-content:flex-end;">
+          <button class="btn btn-primary" id="sync-sign-up-btn">Create account</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-info-card" style="margin-top:var(--space-3);">
+      <h3 style="margin:0 0 var(--space-2) 0;">Already have an account?</h3>
+      <p style="color:var(--color-text-secondary); font-size:var(--text-xs);">
+        Multi-device sign-in arrives in the next desktop release. For now, sign
+        up on this device and use your recovery key to bring data over.
+      </p>
+    </div>
+  `;
+
+  document.getElementById('sync-sign-up-btn')?.addEventListener('click', async () => {
+    const server_url = document.getElementById('sync-server-url').value.trim();
+    const email = document.getElementById('sync-email').value.trim();
+    const access_token = document.getElementById('sync-access-token').value.trim();
+    const passphrase = document.getElementById('sync-passphrase').value;
+    const confirm = document.getElementById('sync-passphrase-confirm').value;
+    if (!server_url || !email || !access_token || !passphrase) {
+      showToast('Fill in every field', 'error');
+      return;
+    }
+    if (passphrase !== confirm) {
+      showToast('Passphrases do not match', 'error');
+      return;
+    }
+    try {
+      const { recovery_hex } = await invoke('sync_sign_up', {
+        request: { server_url, email, access_token, passphrase },
+      });
+      // Show the recovery key once. After this point, the user is on
+      // their own — we never store the recovery key in plaintext.
+      const dialog = document.createElement('div');
+      dialog.className = 'modal-backdrop';
+      dialog.innerHTML = `
+        <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;">
+          <h3>Save your recovery key</h3>
+          <p>This is shown <strong>once</strong>. If you forget your passphrase, this is the only way to recover access to your shared notes. Store it offline.</p>
+          <pre id="recovery-hex" style="background:var(--color-surface-2); padding:var(--space-3); border-radius:var(--radius-md); user-select:all;">${escapeHtml(recovery_hex)}</pre>
+          <div style="display:flex; gap:var(--space-2); justify-content:flex-end;">
+            <button class="btn btn-secondary" id="copy-recovery">Copy</button>
+            <button class="btn btn-primary" id="dismiss-recovery">I have saved it</button>
+          </div>
+        </div>`;
+      document.body.appendChild(dialog);
+      dialog.querySelector('#copy-recovery').addEventListener('click', () => {
+        navigator.clipboard.writeText(recovery_hex);
+        showToast('Recovery key copied', 'success');
+      });
+      dialog.querySelector('#dismiss-recovery').addEventListener('click', () => {
+        document.body.removeChild(dialog);
+        renderAccountSection(document.getElementById('settings-content-panel'));
+      });
+      showToast('Account created', 'success');
+    } catch (e) {
+      showToast('Sign up failed: ' + e, 'error');
+    }
+  });
+}
+
+function bindAccountEvents(panel, status) {
+  document.getElementById('sync-sign-out')?.addEventListener('click', async () => {
+    if (!confirm('Sign out and remove this device from sync? Your local notes stay intact.')) return;
+    try {
+      await invoke('sync_sign_out');
+      showToast('Signed out', 'success');
+      await renderAccountSection(panel);
+    } catch (e) {
+      showToast('Sign out failed: ' + e, 'error');
+    }
+  });
+
+  document.getElementById('sync-create-org')?.addEventListener('click', async () => {
+    const name = prompt('Organization name');
+    if (!name) return;
+    try {
+      await invoke('sync_create_org', { args: { name } });
+      showToast(`Created organization "${name}"`, 'success');
+      await renderAccountSection(panel);
+    } catch (e) {
+      if (String(e).includes('locked')) {
+        document.getElementById('sync-unlock-row').style.display = '';
+        showToast('Unlock with your passphrase first', 'error');
+      } else {
+        showToast('Create org failed: ' + e, 'error');
+      }
+    }
+  });
+
+  document.querySelectorAll('[data-invite-org]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const orgId = btn.dataset.inviteOrg;
+      const row = btn.closest('.org-row');
+      const email = row?.querySelector('.invite-email')?.value.trim();
+      if (!email) return;
+      try {
+        const result = await invoke('sync_invite_to_org', {
+          args: { org_id: orgId, email, org_role: 'member', vault_role: 'editor' },
+        });
+        showToast(`Invited ${result.email}`, 'success');
+        if (row.querySelector('.invite-email')) row.querySelector('.invite-email').value = '';
+      } catch (e) {
+        if (String(e).includes('locked')) {
+          document.getElementById('sync-unlock-row').style.display = '';
+          showToast('Unlock with your passphrase first', 'error');
+        } else {
+          showToast('Invite failed: ' + e, 'error');
+        }
+      }
+    });
+  });
+
+  document.getElementById('sync-unlock-btn')?.addEventListener('click', async () => {
+    const passphrase = document.getElementById('sync-unlock-input').value;
+    if (!passphrase) return;
+    try {
+      await invoke('sync_unlock', { passphrase });
+      showToast('Unlocked', 'success');
+      await renderAccountSection(panel);
+    } catch (e) {
+      showToast('Unlock failed: ' + e, 'error');
+    }
+  });
+
+  document.getElementById('sync-refresh-btn')?.addEventListener('click', async () => {
+    try {
+      await invoke('sync_refresh');
+      showToast('Refreshed', 'success');
+      await renderAccountSection(panel);
+    } catch (e) {
+      showToast('Refresh failed: ' + e, 'error');
+    }
+  });
+
+  // Suppress unused warning
+  void status;
 }
 
 function renderPrivacySection(panel) {

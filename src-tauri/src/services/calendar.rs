@@ -19,6 +19,26 @@ const GOOGLE_SCOPE: &str =
     "openid email profile https://www.googleapis.com/auth/calendar.readonly";
 const MICROSOFT_SCOPE: &str = "offline_access openid profile email User.Read Calendars.Read";
 
+/// Compile-time bake-in placeholders for the OAuth client IDs. These are
+/// populated at build time via `option_env!`, with two fallbacks:
+///
+///   1. `AUDIRE_GOOGLE_CALENDAR_CLIENT_ID_BUILTIN` /
+///      `AUDIRE_MICROSOFT_CALENDAR_CLIENT_ID_BUILTIN` set in the build
+///      environment (the official Audire builds set these so users
+///      don't have to paste anything).
+///   2. The `AUDIRE_*` runtime env vars (see `get_provider_config`).
+///   3. The OS keyring (set via the Settings UI for self-hosted users).
+///
+/// Microsoft's PKCE Public-client flow does not require a client secret;
+/// Google Desktop apps still issue one. Both are stored in the same
+/// keyring/env hierarchy.
+const GOOGLE_CLIENT_ID_BUILTIN: Option<&str> =
+    option_env!("AUDIRE_GOOGLE_CALENDAR_CLIENT_ID_BUILTIN");
+const GOOGLE_CLIENT_SECRET_BUILTIN: Option<&str> =
+    option_env!("AUDIRE_GOOGLE_CALENDAR_CLIENT_SECRET_BUILTIN");
+const MICROSOFT_CLIENT_ID_BUILTIN: Option<&str> =
+    option_env!("AUDIRE_MICROSOFT_CALENDAR_CLIENT_ID_BUILTIN");
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CalendarTokenBundle {
     access_token: String,
@@ -252,17 +272,20 @@ fn get_provider_config(keyvault: &KeyVault, provider: &str) -> Option<(String, O
     let client_id = match provider {
         GOOGLE_PROVIDER => std::env::var("AUDIRE_GOOGLE_CALENDAR_CLIENT_ID")
             .ok()
-            .or_else(|| keyvault.get_secret("calendar:google:client_id")),
+            .or_else(|| keyvault.get_secret("calendar:google:client_id"))
+            .or_else(|| GOOGLE_CLIENT_ID_BUILTIN.map(str::to_string)),
         MICROSOFT_PROVIDER => std::env::var("AUDIRE_MICROSOFT_CALENDAR_CLIENT_ID")
             .ok()
-            .or_else(|| keyvault.get_secret("calendar:microsoft:client_id")),
+            .or_else(|| keyvault.get_secret("calendar:microsoft:client_id"))
+            .or_else(|| MICROSOFT_CLIENT_ID_BUILTIN.map(str::to_string)),
         _ => None,
     }?;
 
     let client_secret = match provider {
         GOOGLE_PROVIDER => std::env::var("AUDIRE_GOOGLE_CALENDAR_CLIENT_SECRET")
             .ok()
-            .or_else(|| keyvault.get_secret("calendar:google:client_secret")),
+            .or_else(|| keyvault.get_secret("calendar:google:client_secret"))
+            .or_else(|| GOOGLE_CLIENT_SECRET_BUILTIN.map(str::to_string)),
         MICROSOFT_PROVIDER => std::env::var("AUDIRE_MICROSOFT_CALENDAR_CLIENT_SECRET")
             .ok()
             .or_else(|| keyvault.get_secret("calendar:microsoft:client_secret")),

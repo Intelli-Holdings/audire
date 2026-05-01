@@ -4,6 +4,7 @@ use crate::error::{ParaError, Result};
 use crate::keyvault::vault::KeyVault;
 use crate::llm::provider::LlmRegistry;
 use crate::store::db::{LocalStore, SessionContextRow};
+use crate::sync::manager::SyncRuntime;
 
 use tokio::runtime::Runtime;
 
@@ -19,6 +20,9 @@ pub struct AppState {
     pub llm_registry: LlmRegistry,
     /// Handle for the background meeting detector task.
     pub detector: Mutex<Option<DetectorHandle>>,
+    /// Optional cloud sync runtime — holds the unlocked KEK and
+    /// per-vault worker handles when the user is signed in.
+    pub sync_runtime: SyncRuntime,
 }
 
 /// Handle to stop the background detection loop.
@@ -71,6 +75,7 @@ impl AppState {
             capture: Mutex::new(None),
             llm_registry,
             detector: Mutex::new(None),
+            sync_runtime: SyncRuntime::new(),
         })
     }
 }

@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from './toast.js';
+import { setSettingsSection } from './views/settings.js';
 
 let appState = null;
 let onViewChange = null;
@@ -49,6 +50,25 @@ export async function autoSelectProvider() {
 // If calendarEvent is provided, attendees are auto-imported into people/companies.
 export async function startCapture(calendarEvent = null) {
   if (appState.isCapturing) return;
+
+  // Pre-flight: BYOK check. If no ASR key is configured we surface a clear
+  // explanation + jump to Settings → API Keys instead of letting start_capture
+  // fail with an opaque MissingKey error.
+  let hasAsrKey = false;
+  for (const provider of ['assemblyai', 'deepgram']) {
+    try {
+      if (await invoke('has_api_key', { provider })) {
+        hasAsrKey = true;
+        break;
+      }
+    } catch { /* ignore */ }
+  }
+  if (!hasAsrKey) {
+    showToast('Add a Deepgram or AssemblyAI key in Settings → API Keys to start recording.', 'info');
+    setSettingsSection('connectors');
+    showView('settings');
+    return;
+  }
 
   const provider = await autoSelectProvider();
   appState.isCapturing = true;

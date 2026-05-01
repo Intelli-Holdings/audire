@@ -8,6 +8,7 @@ pub mod keyvault;
 pub mod llm;
 pub mod services;
 pub mod store;
+pub mod sync;
 
 use state::AppState;
 
@@ -81,6 +82,18 @@ pub fn run() {
             ipc::respond_to_detection_prompt,
             ipc::start_detector,
             ipc::stop_detector,
+            ipc::sync_account_status,
+            ipc::sync_sign_up,
+            ipc::sync_sign_in,
+            ipc::sync_sign_out,
+            ipc::sync_unlock,
+            ipc::sync_refresh,
+            ipc::sync_create_org,
+            ipc::sync_invite_to_org,
+            ipc::sync_list_orgs,
+            ipc::sync_list_vaults,
+            ipc::sync_running_vaults,
+            ipc::share_folder_with_org,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Audire");
