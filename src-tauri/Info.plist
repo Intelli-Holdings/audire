@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS will refuse to prompt the user for mic access without this key,
+         and WebKit's getUserMedia / SpeechRecognition fails with NotAllowedError. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Audire uses your microphone for voice input on the chat page and for transcribing meetings you choose to record.</string>
+
+    <!-- Required for the Web Speech API path on macOS. -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Audire uses speech recognition to transcribe what you say into the chat input.</string>
+
+    <!-- Required for the ScreenCaptureKit system-audio capture backend
+         (audire_sck_helper) used to transcribe meeting audio you can hear. -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Audire records system audio so it can transcribe meetings playing on your Mac. Audio is processed locally and only sent to the ASR provider you have configured.</string>
+</dict>
+</plist>

@@ -58,12 +58,14 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                 {
                     Ok(c) => c,
                     Err(e) => {
+                        #[cfg(debug_assertions)]
                         eprintln!(
                             "[audire] SCK helper spawn failed: {}. \
                              Ensure Screen Recording permission is granted in \
                              System Settings > Privacy & Security > Screen Recording.",
                             e
                         );
+                        let _ = e;
                         return;
                     }
                 };
@@ -90,7 +92,9 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                             }
                         }
                         Err(e) => {
+                            #[cfg(debug_assertions)]
                             eprintln!("[audire] SCK helper read error: {}", e);
+                            let _ = e;
                             break;
                         }
                     }
@@ -105,6 +109,7 @@ pub fn start_capture(seconds_ring: u32) -> Result<SystemCapture> {
                     let mut err_msg = String::new();
                     let _ = stderr.read_to_string(&mut err_msg);
                     if !err_msg.is_empty() {
+                        #[cfg(debug_assertions)]
                         eprintln!("[audire] SCK helper stderr: {}", err_msg);
                     }
                 }

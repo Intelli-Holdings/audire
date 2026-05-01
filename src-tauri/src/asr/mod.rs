@@ -89,11 +89,22 @@ pub async fn run_pipeline(
         serde_json::json!({ "status": "capturing audio" }),
     );
 
-    // 3. Connect to ASR WebSocket (or start mock)
+    // 3. Connect to ASR WebSocket. The "mock" provider streams canned events
+    //    for offline UI testing and is intentionally not selectable in
+    //    release builds — gating it at the dispatch layer keeps the module
+    //    compilable for unit tests while preventing it from being chosen in
+    //    production via direct IPC calls.
     let (ws_tx, ws_rx) = match config.provider.as_str() {
         "deepgram" => deepgram::connect(&api_key).await?,
         "assemblyai" => assemblyai::connect(&api_key).await?,
+        #[cfg(debug_assertions)]
         "mock" => mock::start_mock().await,
+        #[cfg(not(debug_assertions))]
+        "mock" => {
+            return Err(ParaError::Asr(
+                "mock provider is only available in development builds".into(),
+            ))
+        }
         _ => {
             return Err(ParaError::Asr(format!(
                 "unknown provider: {}",

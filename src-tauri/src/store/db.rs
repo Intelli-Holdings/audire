@@ -86,6 +86,15 @@ impl LocalStore {
         })
     }
 
+    /// Acquire the connection mutex, mapping a poisoned mutex into a
+    /// recoverable `ParaError::Db` instead of propagating the panic. A panic
+    /// while holding the lock would otherwise poison every subsequent DB call.
+    fn conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.inner
+            .lock()
+            .map_err(|e| ParaError::Db(format!("db mutex poisoned: {}", e)))
+    }
+
     /// Open an in-memory DB for testing.
     #[cfg(test)]
     pub fn open_memory() -> Result<Self> {
@@ -99,7 +108,7 @@ impl LocalStore {
     pub fn create_meeting(&self, provider: &str) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO meetings(id, provider, started_at) VALUES (?1, ?2, ?3)",
             params![id, provider, now],
@@ -110,7 +119,7 @@ impl LocalStore {
 
     pub fn end_meeting(&self, meeting_id: &str) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meetings SET ended_at=?2 WHERE id=?1",
             params![meeting_id, now],
@@ -120,7 +129,7 @@ impl LocalStore {
     }
 
     pub fn update_meeting_title(&self, meeting_id: &str, title: &str) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meetings SET title=?2 WHERE id=?1",
             params![meeting_id, title],
@@ -141,7 +150,7 @@ impl LocalStore {
         text: &str,
         confidence: Option<f64>,
     ) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO segments(meeting_id, source, ts_ms, text, confidence) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -153,7 +162,7 @@ impl LocalStore {
 
     pub fn insert_note(&self, meeting_id: &str, text: &str) -> Result<()> {
         let now = Utc::now().timestamp_millis();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO notes(meeting_id, ts_ms, text) VALUES (?1, ?2, ?3)",
             params![meeting_id, now, text],
@@ -163,7 +172,7 @@ impl LocalStore {
     }
 
     pub fn segments_for_meeting(&self, meeting_id: &str) -> Result<Vec<SegmentRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, source, ts_ms, text, confidence FROM segments \
@@ -195,7 +204,7 @@ impl LocalStore {
         query: &str,
         limit: i64,
     ) -> Result<Vec<SegmentRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
 
         let fts_sql = r#"
             SELECT s.id, s.source, s.ts_ms, s.text, s.confidence
@@ -267,7 +276,7 @@ impl LocalStore {
     }
 
     pub fn notes_for_meeting(&self, meeting_id: &str) -> Result<Vec<String>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare("SELECT text FROM notes WHERE meeting_id=?1 ORDER BY id ASC")
             .map_err(|e| ParaError::Db(e.to_string()))?;
@@ -288,7 +297,7 @@ impl LocalStore {
         query: &str,
         limit: i64,
     ) -> Result<Vec<String>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
 
         let fts_sql = r#"
             SELECT s.text
@@ -459,7 +468,7 @@ impl LocalStore {
 
         std::fs::write(&out_path, md).map_err(|e| ParaError::Db(e.to_string()))?;
 
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let now = Utc::now().timestamp();
         let _ = conn.execute(
             "INSERT INTO export_cache(meeting_id, format, path, created_at) \
@@ -471,7 +480,7 @@ impl LocalStore {
     }
 
     pub fn get_meeting(&self, meeting_id: &str) -> Result<MeetingDetailRow> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.query_row(
             "SELECT m.id,
                     m.provider,
@@ -516,7 +525,7 @@ impl LocalStore {
     }
 
     pub fn set_meeting_template(&self, meeting_id: &str, template_kind: &str) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meetings SET template_kind=?2 WHERE id=?1",
             params![meeting_id, template_kind],
@@ -527,7 +536,7 @@ impl LocalStore {
 
     pub fn update_structured_note_summary(&self, meeting_id: &str, summary: &str) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meeting_structured_notes
              SET summary=?2, updated_at=?3
@@ -540,7 +549,7 @@ impl LocalStore {
 
     pub fn update_structured_note_item(&self, item_id: i64, text: &str) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meeting_note_items
              SET text=?2, updated_at=?3
@@ -557,7 +566,7 @@ impl LocalStore {
         note: &StructuredMeetingNoteDraft,
     ) -> Result<()> {
         let now = Utc::now().timestamp();
-        let mut conn = self.inner.lock().unwrap();
+        let mut conn = self.conn()?;
         let tx = conn
             .transaction()
             .map_err(|e| ParaError::Db(e.to_string()))?;
@@ -634,7 +643,7 @@ impl LocalStore {
         &self,
         meeting_id: &str,
     ) -> Result<Option<StructuredMeetingNote>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let root = conn
             .query_row(
                 "SELECT meeting_id, template_kind, ownership_scope, summary, generated_at, updated_at
@@ -730,7 +739,7 @@ impl LocalStore {
     // ---- Meetings ----
 
     pub fn list_meetings(&self) -> Result<Vec<MeetingWithNotes>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT m.id,
@@ -798,7 +807,7 @@ impl LocalStore {
     }
 
     pub fn get_notes_for_meeting(&self, meeting_id: &str) -> Result<Vec<NoteRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, meeting_id, ts_ms, text
@@ -827,7 +836,7 @@ impl LocalStore {
     }
 
     pub fn list_all_notes(&self) -> Result<Vec<NoteRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, meeting_id, ts_ms, text
@@ -858,7 +867,7 @@ impl LocalStore {
 
     pub fn create_standalone_note(&self, title: &str) -> Result<StandaloneNoteRow> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO standalone_notes(title, text, created_at, updated_at)
              VALUES (?1, '', ?2, ?2)",
@@ -880,7 +889,7 @@ impl LocalStore {
     }
 
     pub fn get_standalone_note(&self, note_id: i64) -> Result<StandaloneNoteRow> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.query_row(
             "SELECT sn.id, sn.title, sn.text, sn.ownership_scope, sn.folder_id, f.name, sn.created_at, sn.updated_at
              FROM standalone_notes sn
@@ -905,7 +914,7 @@ impl LocalStore {
 
     pub fn update_standalone_note(&self, note_id: i64, title: &str, text: &str) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE standalone_notes
              SET title=?2, text=?3, updated_at=?4
@@ -917,7 +926,7 @@ impl LocalStore {
     }
 
     pub fn list_standalone_notes(&self) -> Result<Vec<StandaloneNoteRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT sn.id, sn.title, sn.text, sn.ownership_scope, sn.folder_id, f.name, sn.created_at, sn.updated_at
@@ -950,7 +959,7 @@ impl LocalStore {
     }
 
     pub fn delete_standalone_note(&self, note_id: i64) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute("DELETE FROM standalone_notes WHERE id=?1", params![note_id])
             .map_err(|e| ParaError::Db(e.to_string()))?;
         Ok(())
@@ -981,7 +990,7 @@ impl LocalStore {
         owner_org_id: Option<&str>,
     ) -> Result<FolderRow> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO folders(name, kind, color, description, ownership_scope, owner_user_id, owner_org_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
@@ -1023,7 +1032,7 @@ impl LocalStore {
         color: Option<&str>,
     ) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE folders
              SET name=?2, kind=?3, color=?4, updated_at=?5
@@ -1035,7 +1044,7 @@ impl LocalStore {
     }
 
     pub fn delete_folder(&self, folder_id: i64) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meetings SET folder_id=NULL WHERE folder_id=?1",
             params![folder_id],
@@ -1052,7 +1061,7 @@ impl LocalStore {
     }
 
     pub fn list_folders(&self) -> Result<Vec<FolderRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT f.id,
@@ -1102,7 +1111,7 @@ impl LocalStore {
     }
 
     pub fn assign_meeting_folder(&self, meeting_id: &str, folder_id: Option<i64>) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE meetings SET folder_id=?2 WHERE id=?1",
             params![meeting_id, folder_id],
@@ -1116,7 +1125,7 @@ impl LocalStore {
         note_id: i64,
         folder_id: Option<i64>,
     ) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE standalone_notes SET folder_id=?2 WHERE id=?1",
             params![note_id, folder_id],
@@ -1145,7 +1154,7 @@ impl LocalStore {
     }
 
     pub fn list_org_shared_key_statuses(&self, org_id: i64) -> Result<Vec<OrgSharedKeyStatusRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT org_id, provider, updated_at
@@ -1172,7 +1181,7 @@ impl LocalStore {
 
     pub fn upsert_org_shared_key_status(&self, org_id: i64, provider: &str) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO org_shared_keys(org_id, provider, updated_at)
              VALUES (?1, ?2, ?3)
@@ -1184,7 +1193,7 @@ impl LocalStore {
     }
 
     pub fn delete_org_shared_key_status(&self, org_id: i64, provider: &str) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "DELETE FROM org_shared_keys WHERE org_id=?1 AND provider=?2",
             params![org_id, provider],
@@ -1194,7 +1203,7 @@ impl LocalStore {
     }
 
     pub fn get_session_context(&self) -> Result<SessionContextRow> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let row = conn
             .query_row(
                 "SELECT mode, user_id, email, active_org_id, updated_at
@@ -1231,7 +1240,7 @@ impl LocalStore {
         active_org_id: Option<&str>,
     ) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO session_cache(id, mode, user_id, email, active_org_id, updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5)
@@ -1250,7 +1259,7 @@ impl LocalStore {
     // ---- Detection Settings ----
 
     pub fn get_detection_settings(&self) -> Result<DetectionSettingsRow> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.query_row(
             "SELECT calendar_detection_enabled, audio_detection_enabled,
                     calendar_lead_minutes, audio_silence_threshold_minutes,
@@ -1277,7 +1286,7 @@ impl LocalStore {
 
     pub fn update_detection_settings(&self, settings: &DetectionSettingsRow) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE detection_settings SET
                 calendar_detection_enabled = ?1,
@@ -1317,7 +1326,7 @@ impl LocalStore {
         event_end: &str,
     ) -> Result<()> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO detection_calendar_prompts(external_id, provider, event_title, event_start, event_end, prompted_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -1339,7 +1348,7 @@ impl LocalStore {
         action: &str,
         meeting_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "UPDATE detection_calendar_prompts SET action = ?3, meeting_id = ?4
              WHERE external_id = ?1 AND provider = ?2",
@@ -1354,7 +1363,7 @@ impl LocalStore {
         external_id: &str,
         provider: &str,
     ) -> Result<Option<DetectionCalendarPromptRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.query_row(
             "SELECT external_id, provider, event_title, event_start, event_end, prompted_at, action, meeting_id
              FROM detection_calendar_prompts WHERE external_id = ?1 AND provider = ?2",
@@ -1377,7 +1386,7 @@ impl LocalStore {
     }
 
     pub fn list_detection_prompts(&self) -> Result<Vec<DetectionCalendarPromptRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT external_id, provider, event_title, event_start, event_end, prompted_at, action, meeting_id
@@ -1410,7 +1419,7 @@ impl LocalStore {
     ) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO meetings(id, provider, started_at, calendar_external_id, calendar_provider)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1428,7 +1437,7 @@ impl LocalStore {
         limit: i64,
         folder_id: Option<i64>,
     ) -> Result<Vec<SegmentSearchHit>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let sql = if folder_id.is_some() {
             r#"
             SELECT m.id, m.title, m.folder_id, f.name, s.id, s.source, s.ts_ms, s.text, s.confidence
@@ -1541,7 +1550,7 @@ impl LocalStore {
         limit: i64,
         folder_id: Option<i64>,
     ) -> Result<Vec<StructuredItemSearchHit>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let sql = if folder_id.is_some() {
             "SELECT m.id, m.title, m.folder_id, f.name, i.id, i.section_kind, i.text, i.evidence_count
              FROM meeting_note_items i
@@ -1593,7 +1602,7 @@ impl LocalStore {
         limit: i64,
         folder_id: Option<i64>,
     ) -> Result<Vec<StandaloneNoteSearchHit>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let sql = if folder_id.is_some() {
             "SELECT sn.id, sn.title, sn.text, sn.folder_id, f.name
              FROM standalone_notes sn
@@ -1644,7 +1653,7 @@ impl LocalStore {
         source: &str,
     ) -> Result<ParticipantRow> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
 
         if let Some(em) = email {
             if let Some(row) = conn
@@ -1694,7 +1703,7 @@ impl LocalStore {
     }
 
     pub fn link_participant_meeting(&self, meeting_id: &str, participant_id: i64) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT OR IGNORE INTO meeting_participants(meeting_id, participant_id)
              VALUES (?1, ?2)",
@@ -1705,7 +1714,7 @@ impl LocalStore {
     }
 
     pub fn list_participants_for_meeting(&self, meeting_id: &str) -> Result<Vec<ParticipantRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT p.id,
@@ -1757,7 +1766,7 @@ impl LocalStore {
     }
 
     pub fn list_all_participants(&self) -> Result<Vec<ParticipantRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT p.id,
@@ -1810,7 +1819,7 @@ impl LocalStore {
 
     pub fn add_organization(&self, name: &str, domain: Option<&str>) -> Result<OrganizationRow> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
 
         if let Some(d) = domain {
             if let Some(row) = conn
@@ -1856,7 +1865,7 @@ impl LocalStore {
     }
 
     pub fn link_participant_org(&self, participant_id: i64, org_id: i64) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT OR IGNORE INTO participant_org(participant_id, org_id)
              VALUES (?1, ?2)",
@@ -1900,7 +1909,7 @@ impl LocalStore {
     }
 
     pub fn list_organizations(&self) -> Result<Vec<OrganizationRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT o.id,
@@ -1951,7 +1960,7 @@ impl LocalStore {
         display_name: Option<&str>,
     ) -> Result<CalendarAccountRow> {
         let now = Utc::now().timestamp();
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "INSERT INTO calendar_accounts(provider, email, display_name, connected_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4)
@@ -1973,7 +1982,7 @@ impl LocalStore {
     }
 
     pub fn get_calendar_account(&self, provider: &str) -> Result<Option<CalendarAccountRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.query_row(
             "SELECT provider, email, display_name, connected_at, updated_at
              FROM calendar_accounts
@@ -1994,7 +2003,7 @@ impl LocalStore {
     }
 
     pub fn list_calendar_accounts(&self) -> Result<Vec<CalendarAccountRow>> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT provider, email, display_name, connected_at, updated_at
@@ -2023,7 +2032,7 @@ impl LocalStore {
     }
 
     pub fn delete_calendar_account(&self, provider: &str) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
+        let conn = self.conn()?;
         conn.execute(
             "DELETE FROM calendar_accounts WHERE provider=?1",
             params![provider],

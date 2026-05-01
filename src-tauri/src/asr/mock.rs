@@ -47,9 +47,9 @@ pub async fn start_mock() -> (mpsc::Sender<Message>, mpsc::Receiver<Message>) {
                     "is_final": false,
                     "turn_index": i,
                 });
-                let _ = rx_tx
-                    .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
-                    .await;
+                if let Ok(text) = serde_json::to_string(&msg) {
+                    let _ = rx_tx.send(Message::Text(text.into())).await;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             }
 
@@ -59,9 +59,9 @@ pub async fn start_mock() -> (mpsc::Sender<Message>, mpsc::Receiver<Message>) {
                 "is_final": true,
                 "turn_index": i,
             });
-            let _ = rx_tx
-                .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
-                .await;
+            if let Ok(text) = serde_json::to_string(&msg) {
+                let _ = rx_tx.send(Message::Text(text.into())).await;
+            }
 
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }

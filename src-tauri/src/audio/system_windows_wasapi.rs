@@ -46,46 +46,50 @@ pub fn start_capture(
             .spawn(move || {
                 // COM init on this thread (MTA for background capture).
                 if initialize_mta().is_err() {
+                    #[cfg(debug_assertions)]
                     eprintln!("[audire] WASAPI: COM MTA init failed");
                     return;
                 }
 
-                let audio_client_result = if mode == "process" && target_pid.is_some() {
-                    // Per-process loopback (Windows 10 20348+ / Windows 11)
-                    // Reference: https://docs.rs/wasapi/latest/wasapi/struct.AudioClient.html
-                    let pid = target_pid.unwrap();
+                // Per-process loopback requires Windows 10 20348+ and an API
+                // (new_application_loopback_client) not exposed by wasapi 0.16.
+                // Until the crate gains support, transparently fall back to
+                // system-wide loopback so the user still gets audio captured.
+                if let (Some(pid), "process") = (target_pid, mode.as_str()) {
+                    #[cfg(debug_assertions)]
                     eprintln!(
-                        "[audire] WASAPI: attempting per-process loopback for PID {}",
+                        "[audire] WASAPI: per-process loopback requested for PID {} \
+                         but is unavailable in wasapi 0.16 — falling back to system loopback.",
                         pid
                     );
-                    // Note: new_application_loopback_client may not be available on older wasapi crate versions.
-                    // If unavailable, falls through to the error below.
-                    Err(format!(
-                        "per-process loopback not yet supported in wasapi 0.16; PID={}",
-                        pid
-                    ))
-                } else {
-                    // Default: system-wide loopback from the default render device
-                    init_system_loopback()
-                };
+                    let _ = pid;
+                }
+                let audio_client_result = init_system_loopback();
 
                 let (audio_client, h_event, capture_client) = match audio_client_result {
                     Ok(v) => v,
                     Err(e) => {
+                        #[cfg(debug_assertions)]
                         eprintln!("[audire] WASAPI: init failed: {}", e);
+                        let _ = e;
                         return;
                     }
                 };
 
                 if let Err(e) = audio_client.start_stream() {
+                    #[cfg(debug_assertions)]
                     eprintln!("[audire] WASAPI: start_stream: {}", e);
+                    let _ = e;
                     return;
                 }
 
                 // Read loop: pull bytes from device, convert float32 → i16, push to ring.
                 let mut buf = std::collections::VecDeque::<u8>::with_capacity(256 * 1024);
+                #[cfg(debug_assertions)]
                 let mut total_samples_pushed: u64 = 0;
+                #[cfg(debug_assertions)]
                 let mut last_log_time = std::time::Instant::now();
+                #[cfg(debug_assertions)]
                 let mut first_logged = false;
 
                 while !stop_flag_thread.load(Ordering::Relaxed) {
@@ -97,7 +101,9 @@ pub fn start_capture(
                     match capture_client.read_from_device_to_deque(&mut buf) {
                         Ok(_) => {}
                         Err(e) => {
+                            #[cfg(debug_assertions)]
                             eprintln!("[audire] WASAPI: read error: {}", e);
+                            let _ = e;
                             break;
                         }
                     }
@@ -105,27 +111,41 @@ pub fn start_capture(
                     // Convert raw bytes to f32 samples, then to i16.
                     // WASAPI mix format is typically float32 (4 bytes per sample).
                     while buf.len() >= 4 {
-                        let b0 = buf.pop_front().unwrap();
-                        let b1 = buf.pop_front().unwrap();
-                        let b2 = buf.pop_front().unwrap();
-                        let b3 = buf.pop_front().unwrap();
-                        let f = f32::from_le_bytes([b0, b1, b2, b3]);
+                        // pop_front returns None if the deque was emptied by another
+                        // thread between len() and pop. Defensive: if any of the four
+                        // bytes is missing, drop the partial frame and retry next loop.
+                        let bytes = match (
+                            buf.pop_front(),
+                            buf.pop_front(),
+                            buf.pop_front(),
+                            buf.pop_front(),
+                        ) {
+                            (Some(b0), Some(b1), Some(b2), Some(b3)) => [b0, b1, b2, b3],
+                            _ => break,
+                        };
+                        let f = f32::from_le_bytes(bytes);
                         let s =
                             (f * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                         // Backpressure: if ring is full, oldest samples are dropped (try_push).
                         // This is intentional — prefer continuity over RAM growth.
                         let _ = prod.try_push(s);
-                        total_samples_pushed += 1;
+                        #[cfg(debug_assertions)]
+                        {
+                            total_samples_pushed += 1;
+                        }
                     }
 
-                    // Periodic diagnostic logging.
-                    if !first_logged && total_samples_pushed > 0 {
-                        eprintln!("[audire] WASAPI: first samples pushed (total: {})", total_samples_pushed);
-                        first_logged = true;
-                        last_log_time = std::time::Instant::now();
-                    } else if last_log_time.elapsed() >= std::time::Duration::from_secs(5) {
-                        eprintln!("[audire] WASAPI: pushed {} samples total", total_samples_pushed);
-                        last_log_time = std::time::Instant::now();
+                    // Periodic diagnostic logging — debug builds only.
+                    #[cfg(debug_assertions)]
+                    {
+                        if !first_logged && total_samples_pushed > 0 {
+                            eprintln!("[audire] WASAPI: first samples pushed (total: {})", total_samples_pushed);
+                            first_logged = true;
+                            last_log_time = std::time::Instant::now();
+                        } else if last_log_time.elapsed() >= std::time::Duration::from_secs(5) {
+                            eprintln!("[audire] WASAPI: pushed {} samples total", total_samples_pushed);
+                            last_log_time = std::time::Instant::now();
+                        }
                     }
                 }
 

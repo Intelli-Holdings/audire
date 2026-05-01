@@ -49,10 +49,7 @@ pub fn mix_sources(a: &[i16], b: &[i16]) -> Vec<i16> {
 ///   Speech is already band-limited by mic/meeting codecs, so this is adequate for ASR.
 /// - If input_sr == 16000: passthrough (already at target rate).
 /// - If input_sr == 44100: nearest-sample resampling (acceptable for speech ASR).
-/// - Other rates: returns error with suggestion to enable resampler feature flag.
-///
-/// TODO(feature): Add a high-quality resampler behind a feature flag (e.g. rubato/soxr)
-/// for devices not running at 48kHz.
+/// - Other rates: returns an error.
 pub fn downsample_to_16k_mono(input_mono: &[i16], input_sr: u32) -> Result<Vec<i16>> {
     match input_sr {
         16_000 => Ok(input_mono.to_vec()),
@@ -78,8 +75,7 @@ pub fn downsample_to_16k_mono(input_mono: &[i16], input_sr: u32) -> Result<Vec<i
             Ok(out)
         }
         _ => Err(ParaError::Audio(format!(
-            "unsupported input sample_rate={} for downsampler; expected 48000, 44100, or 16000. \
-             TODO: add resampler feature flag (rubato/soxr).",
+            "unsupported input sample_rate={} for downsampler; expected 48000, 44100, or 16000.",
             input_sr
         ))),
     }
