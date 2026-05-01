@@ -1,30 +1,55 @@
 /* Audire website shared styles. */
 
 :root {
-  --bg: #fbfaf7;
-  --bg-2: #ffffff;
-  --bg-3: #f3f1ea;
-  --panel: #fffefb;
-  --panel-warm: #f6f3eb;
-  --border: #ddd5c4;
-  --border-strong: #cfc2aa;
-  --text: #191714;
-  --text-2: #68635a;
-  --text-muted: #928b7d;
-  --accent: #c8a44e;
-  --accent-dark: #8a6d24;
-  --accent-deep: #5d4915;
-  --accent-soft: #eee5c9;
-  --link: #8a6d24;
-  --link-hover: #5d4915;
+  --sh-class: #2d5e9d;
+  --sh-identifier: #354150;
+  --sh-sign: #8996a3;
+  --sh-string: #007f7a;
+  --sh-keyword: #e02518;
+  --sh-comment: #a19595;
+  --sh-jsxliterals: #6266d1;
+  --sh-property: #e25a1c;
+  --sh-entity: #e25a1c;
+  --background-hsl: 0 0% 100%;
+  --foreground-hsl: 0 0% 0%;
+  --card-hsl: 0 0% 100%;
+  --primary-hsl: 0 0% 5%;
+  --primary-foreground-hsl: 0 0% 100%;
+  --secondary-hsl: 0 0% 27%;
+  --secondary-foreground-hsl: 0 0% 100%;
+  --muted-hsl: 0 0% 96%;
+  --muted-foreground-hsl: 0 0% 45%;
+  --accent-hsl: 109 82% 72%;
+  --accent-foreground-hsl: 120 82% 25%;
+  --border-hsl: 0 0% 89%;
+  --input-hsl: 0 0% 89%;
+  --ring-hsl: 109 82% 72%;
+  --bg: hsl(var(--background-hsl));
+  --bg-2: hsl(var(--card-hsl));
+  --bg-3: hsl(var(--muted-hsl));
+  --panel: hsl(var(--card-hsl));
+  --panel-warm: hsl(var(--muted-hsl));
+  --border: hsl(var(--border-hsl));
+  --border-strong: hsl(0 0% 78%);
+  --text: hsl(var(--foreground-hsl));
+  --text-2: hsl(var(--muted-foreground-hsl));
+  --text-muted: hsl(0 0% 58%);
+  --accent: hsl(var(--accent-hsl));
+  --accent-dark: hsl(var(--accent-foreground-hsl));
+  --accent-deep: hsl(120 82% 18%);
+  --accent-soft: hsl(109 82% 92%);
+  --accent-hover: hsl(109 82% 86%);
+  --link: hsl(var(--accent-foreground-hsl));
+  --link-hover: hsl(120 82% 18%);
   --max-content: 1232px;
   --max-prose: 760px;
   --radius: 8px;
   --radius-sm: 6px;
-  --shadow-soft: 0 22px 70px rgba(62, 50, 25, 0.09);
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-  --font-display: Georgia, "Times New Roman", serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  --shadow-soft: 0 22px 70px rgba(0, 0, 0, 0.07);
+  --font-sans: "KMR Melange Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: var(--font-sans);
+  --font-display: "KMR Melange Grotesk", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 * {
@@ -148,16 +173,16 @@ code {
 .site-header-inner {
   width: min(calc(100% - 48px), 650px);
   min-height: 58px;
-  padding: 8px 10px 8px 16px;
+  padding: 7px 9px 7px 16px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 10px 38px rgba(52, 44, 29, 0.08);
+  box-shadow: 0 10px 38px rgba(0, 0, 0, 0.07);
   backdrop-filter: blur(18px) saturate(140%);
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 22px;
 }
 
 .brand {
@@ -176,37 +201,17 @@ code {
 }
 
 .brand-mark {
-  position: relative;
   display: inline-block;
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--text);
-  border-radius: 50%;
-}
-
-.brand-mark::before,
-.brand-mark::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-}
-
-.brand-mark::before {
-  inset: 5px;
-  border: 2px solid var(--accent-dark);
-}
-
-.brand-mark::after {
-  width: 5px;
-  height: 5px;
-  right: 2px;
-  top: 8px;
-  background: var(--accent);
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: contain;
 }
 
 .nav-links {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 24px;
   font-size: 0.96rem;
   white-space: nowrap;
@@ -218,6 +223,43 @@ code {
 
 .nav-links a:hover {
   color: var(--text);
+}
+
+.nav-download {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--accent-dark);
+  color: hsl(var(--primary-foreground-hsl));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.nav-download:hover {
+  background: var(--accent-deep);
+  color: hsl(var(--primary-foreground-hsl));
+}
+
+.os-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.os-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: currentColor;
 }
 
 .hero {
@@ -247,14 +289,14 @@ code {
 
 .announcement:hover {
   color: var(--accent-deep);
-  background: #e7d9ad;
+  background: var(--accent-hover);
 }
 
 .hero h1 {
   width: 100%;
   max-width: 930px;
   margin: 0;
-  color: #282420;
+  color: var(--text);
   font-family: var(--font-display);
   font-size: 5rem;
   font-weight: 400;
@@ -306,16 +348,32 @@ code {
   transform: translateY(-1px);
 }
 
+.btn.is-loading::after {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .btn-primary {
   border-color: var(--accent-dark);
   background: var(--accent-dark);
-  color: #fffef8;
+  color: hsl(var(--primary-foreground-hsl));
 }
 
 .btn-primary:hover {
   border-color: var(--accent-deep);
   background: var(--accent-deep);
-  color: #fffef8;
+  color: hsl(var(--primary-foreground-hsl));
 }
 
 .btn-secondary {
@@ -325,7 +383,7 @@ code {
 }
 
 .btn-secondary:hover {
-  background: #e7d9ad;
+  background: var(--accent-hover);
   color: var(--accent-deep);
 }
 
@@ -435,7 +493,7 @@ code {
   margin-top: 30px;
   padding: 12px 14px;
   border-left: 3px solid var(--accent);
-  background: #fbf6e5;
+  background: var(--accent-soft);
   color: var(--accent-deep);
   font-weight: 700;
 }
@@ -551,7 +609,7 @@ section {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: 0 18px 50px rgba(52, 44, 29, 0.05);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.04);
 }
 
 .feature-icon {
@@ -636,7 +694,7 @@ section {
   align-items: center;
   justify-content: center;
   text-align: center;
-  box-shadow: 0 12px 30px rgba(52, 44, 29, 0.06);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05);
 }
 
 .platform-tile:nth-child(1) {
@@ -684,7 +742,7 @@ section {
   gap: 10px;
 }
 
-.template-sidebar span {
+.template-sidebar button {
   align-self: flex-start;
   padding: 7px 12px;
   border: 1px solid var(--border);
@@ -693,12 +751,17 @@ section {
   color: var(--text);
   font-weight: 700;
   line-height: 1.2;
+  cursor: pointer;
+}
+
+.template-sidebar button:hover {
+  border-color: var(--border-strong);
 }
 
 .template-sidebar .active {
   border-color: var(--accent-dark);
   background: var(--accent-dark);
-  color: #fffef8;
+  color: hsl(var(--primary-foreground-hsl));
 }
 
 .template-doc {
@@ -727,11 +790,36 @@ section {
   font-weight: 600;
 }
 
+.template-section {
+  margin-top: 22px;
+}
+
+.line-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.line-stack .skeleton {
+  position: relative;
+  margin-left: 18px;
+}
+
+.line-stack .skeleton::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bg-3);
+}
+
 .skeleton {
   display: block;
   width: 70%;
   height: 15px;
-  margin: 8px 0;
+  margin: 0;
   border-radius: 4px;
   background: #e9e6dd;
 }
@@ -834,7 +922,7 @@ section {
   justify-content: space-between;
   gap: 16px;
   color: var(--text-muted);
-  box-shadow: 0 12px 38px rgba(52, 44, 29, 0.08);
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.06);
 }
 
 .prompt-box button {
@@ -843,7 +931,7 @@ section {
   border: 0;
   border-radius: 50%;
   background: var(--accent-dark);
-  color: #fffef8;
+  color: hsl(var(--primary-foreground-hsl));
   font-weight: 900;
   cursor: pointer;
 }
@@ -1016,7 +1104,7 @@ section {
   position: absolute;
   left: 0;
   bottom: -90px;
-  color: rgba(138, 109, 36, 0.07);
+  color: hsl(var(--accent-foreground-hsl) / 0.08);
   font-family: var(--font-ui);
   font-size: 13rem;
   font-weight: 900;
@@ -1098,7 +1186,8 @@ section {
   }
 
   .site-header-inner {
-    justify-content: center;
+    grid-template-columns: auto auto;
+    justify-content: space-between;
   }
 
   .nav-links {

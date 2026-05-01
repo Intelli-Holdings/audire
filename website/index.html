@@ -10,14 +10,14 @@
   <meta property="og:description" content="Private meeting transcription and notes. Audio is never persisted, anywhere. BYOK." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://audire.app/" />
-  <meta property="og:image" content="https://audire.app/logo.svg" />
+  <meta property="og:image" content="https://audire.app/audire.svg" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Audire - Local-first meeting transcription" />
   <meta name="twitter:description" content="Private meeting transcription and notes. Audio is never persisted, anywhere. BYOK." />
 
   <meta name="google-site-verification" content="" />
 
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="/audire.svg" />
   <link rel="canonical" href="https://audire.app/" />
   <link rel="stylesheet" href="/src/style.css" />
 
@@ -29,7 +29,7 @@
         "@type": "Organization",
         "name": "Intelli Holdings Inc",
         "url": "https://audire.app",
-        "logo": "https://audire.app/logo.svg"
+        "logo": "https://audire.app/audire.svg"
       },
       {
         "@type": "SoftwareApplication",
@@ -49,15 +49,19 @@
   <header class="site-header">
     <div class="container site-header-inner">
       <a class="brand" href="/">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
         <span>Audire</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
         <a href="#privacy">Privacy</a>
-        <a href="#download">Download</a>
+        <a href="/terms">Terms</a>
         <a href="https://github.com/Intelli-Holdings/audire" rel="noopener">GitHub</a>
       </nav>
+      <a class="nav-download" href="#download">
+        <span class="os-icon" data-os-icon aria-hidden="true"></span>
+        <span>Download</span>
+      </a>
     </div>
   </header>
 
@@ -75,7 +79,10 @@
           proxied by Audire.
         </p>
         <div class="hero-cta" id="hero-download">
-          <a class="btn btn-primary" href="https://github.com/Intelli-Holdings/audire/releases/latest" rel="noopener">Download Audire</a>
+          <a class="btn btn-primary" href="https://github.com/Intelli-Holdings/audire/releases/latest" rel="noopener">
+            <span class="os-icon" data-os-icon aria-hidden="true"></span>
+            <span>Download Audire</span>
+          </a>
           <a class="btn btn-ghost" href="https://github.com/Intelli-Holdings/audire" rel="noopener">View source</a>
         </div>
 
@@ -179,22 +186,35 @@
       <div class="container split-grid">
         <div class="template-window" aria-label="Audire notes recipe preview">
           <div class="template-sidebar">
-            <span class="active">Customer discovery</span>
-            <span>1 on 1</span>
-            <span>User interview</span>
-            <span>Standup</span>
+            <button class="active" type="button" data-template-tab="0">Customer discovery</button>
+            <button type="button" data-template-tab="1">1 on 1</button>
+            <button type="button" data-template-tab="2">User interview</button>
+            <button type="button" data-template-tab="3">Standup</button>
           </div>
-          <div class="template-doc">
-            <h3>Casey &lt;&gt; Rahul 1 on 1</h3>
-            <p class="doc-meta">Today 12:25 PM - Jim, Michaela +5</p>
-            <h4>What's the latest</h4>
-            <span class="skeleton long"></span>
-            <span class="skeleton"></span>
-            <h4>Feedback for them</h4>
-            <span class="skeleton long"></span>
-            <span class="skeleton mid"></span>
-            <h4>Next milestone</h4>
-            <span class="skeleton"></span>
+          <div class="template-doc" data-template-doc aria-live="polite">
+            <h3>Upstart Health intro call</h3>
+            <p class="doc-meta">Today 12:40 PM - Jim, Michaela +5</p>
+            <div class="template-section">
+              <h4>About them</h4>
+              <div class="line-stack">
+                <span class="skeleton long"></span>
+                <span class="skeleton mid"></span>
+                <span class="skeleton"></span>
+              </div>
+            </div>
+            <div class="template-section">
+              <h4>Key takeaways</h4>
+              <div class="line-stack">
+                <span class="skeleton long"></span>
+                <span class="skeleton mid"></span>
+              </div>
+            </div>
+            <div class="template-section">
+              <h4>Next steps</h4>
+              <div class="line-stack">
+                <span class="skeleton"></span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="copy-block">
@@ -296,48 +316,6 @@
         </div>
       </div>
     </section>
-
-    <section id="calendar" class="calendar-section">
-      <div class="container prose">
-        <h2>Why Audire requests Google Calendar access</h2>
-        <p>
-          Audire integrates with Google Calendar to detect meetings you have
-          scheduled and offer a one-click way to start a transcription session
-          when one begins. The integration is read-only and uses the smallest
-          set of scopes required to do this.
-        </p>
-        <table class="scope-table">
-          <thead>
-            <tr><th>Scope</th><th>Why Audire requests it</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>calendar.events.freebusy</code></td>
-              <td>Read free/busy windows on calendars you have shared with the user, so Audire can show your upcoming meeting load on the home screen.</td>
-            </tr>
-            <tr>
-              <td><code>calendar.events.public.readonly</code></td>
-              <td>Read events on public calendars the user follows, such as team broadcast calendars, to surface them as upcoming in the app.</td>
-            </tr>
-            <tr>
-              <td><code>calendar.settings.readonly</code></td>
-              <td>Read your Calendar timezone and working-hours settings so Audire renders meeting times correctly on your device.</td>
-            </tr>
-            <tr>
-              <td><code>calendar.freebusy</code></td>
-              <td>Read your own availability so Audire can detect a meeting that is starting and prompt to begin a transcription session.</td>
-            </tr>
-          </tbody>
-        </table>
-        <p>
-          Audire never writes to your calendar, never reads private event
-          contents beyond what these scopes return, and never shares calendar
-          data with any third party. Calendar data stays on your device.
-          The full data flow is described in the
-          <a href="/privacy">privacy policy</a>.
-        </p>
-      </div>
-    </section>
   </main>
 
   <footer class="site-footer">
@@ -345,7 +323,7 @@
       <div class="footer-grid">
         <div>
           <a class="brand" href="/">
-            <span class="brand-mark" aria-hidden="true"></span>
+            <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
             <span>Audire</span>
           </a>
           <p>
@@ -383,8 +361,86 @@
   </script>
 
   <script type="module">
-    import { mountSmartDownload } from '/src/download.js';
+    import { mountOsBadges, mountSmartDownload } from '/src/download.js';
+    mountOsBadges(document);
     mountSmartDownload(document.getElementById('hero-download'));
+
+    const templates = [
+      {
+        title: 'Upstart Health intro call',
+        meta: 'Today 12:40 PM - Jim, Michaela +5',
+        sections: ['About them', 'Key takeaways', 'Decision-making insights', 'Budget & timeline', 'Next steps'],
+      },
+      {
+        title: 'Casey &lt;&gt; Rahul 1 on 1',
+        meta: 'Today 12:25 PM - Jim, Michaela +5',
+        sections: ["What's the latest", 'Feedback for them', 'Feedback for me', 'Next milestone'],
+      },
+      {
+        title: 'Kallo - User interview',
+        meta: 'Today 12:40 PM - Jim, Michaela +5',
+        sections: ['Goals and motivations', 'Pain points', 'Current solutions', 'User thoughts', 'User suggestions'],
+      },
+      {
+        title: 'Team standup',
+        meta: 'Today 12:40 PM - Jim, Michaela +5',
+        sections: ['Done yesterday', 'Doing today', 'Blockers', 'Kudos'],
+      },
+    ];
+
+    const tabs = [...document.querySelectorAll('[data-template-tab]')];
+    const doc = document.querySelector('[data-template-doc]');
+    let activeTemplate = 0;
+    let templateTimer;
+
+    function lineMarkup(sectionIndex) {
+      const shapes = [
+        ['long', 'mid', ''],
+        ['long', ''],
+        ['mid', '', ''],
+      ][sectionIndex % 3];
+
+      return shapes
+        .map((shape) => `<span class="skeleton ${shape}"></span>`)
+        .join('');
+    }
+
+    function renderTemplate(index) {
+      activeTemplate = index % templates.length;
+      const template = templates[activeTemplate];
+      tabs.forEach((tab, tabIndex) => {
+        tab.classList.toggle('active', tabIndex === activeTemplate);
+        tab.setAttribute('aria-pressed', String(tabIndex === activeTemplate));
+      });
+
+      doc.innerHTML = `
+        <h3>${template.title}</h3>
+        <p class="doc-meta">${template.meta}</p>
+        ${template.sections.map((section, sectionIndex) => `
+          <div class="template-section">
+            <h4>${section}</h4>
+            <div class="line-stack">${lineMarkup(sectionIndex)}</div>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    function startTemplateTimer() {
+      window.clearInterval(templateTimer);
+      templateTimer = window.setInterval(() => {
+        renderTemplate(activeTemplate + 1);
+      }, 2400);
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => {
+        renderTemplate(index);
+        startTemplateTimer();
+      });
+    });
+
+    renderTemplate(0);
+    startTemplateTimer();
   </script>
 </body>
 </html>

@@ -19,7 +19,7 @@ npm run build      # output: website/dist
 | Privacy       | `privacy.html` | `https://audire.app/privacy` |
 | Terms         | `terms.html`   | `https://audire.app/terms`   |
 
-Logo placeholder lives at `public/logo.svg`. Drop the production logo there with the same filename.
+Production logo lives at `public/audire.svg`.
 
 ## Deploying
 
@@ -48,7 +48,7 @@ Before submitting the consent screen for verification:
 - [ ] Domain `audire.app` resolves over HTTPS.
 - [ ] Privacy policy URL is reachable: `https://audire.app/privacy`.
 - [ ] Terms of service URL is reachable: `https://audire.app/terms`.
-- [ ] Logo at `public/logo.svg` is the final logo, not the placeholder.
+- [ ] Logo at `public/audire.svg` is the final logo used by the site metadata and favicon.
 - [ ] In Google Cloud Console → OAuth consent screen, set:
   - **Application home page**: `https://audire.app`
   - **Application privacy policy link**: `https://audire.app/privacy`

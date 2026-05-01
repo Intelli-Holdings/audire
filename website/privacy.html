@@ -10,11 +10,11 @@
   <meta property="og:description" content="Audio is never persisted, anywhere. BYOK. No telemetry." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://audire.app/privacy" />
-  <meta property="og:image" content="https://audire.app/logo.svg" />
+  <meta property="og:image" content="https://audire.app/audire.svg" />
   <meta name="twitter:card" content="summary" />
   <meta name="google-site-verification" content="" />
 
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="/audire.svg" />
   <link rel="canonical" href="https://audire.app/privacy" />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
@@ -22,15 +22,19 @@
   <header class="site-header">
     <div class="container site-header-inner">
       <a class="brand" href="/">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
         <span>Audire</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="/#features">Features</a>
         <a href="/#privacy">Privacy</a>
-        <a href="/#download">Download</a>
+        <a href="/terms">Terms</a>
         <a href="https://github.com/Intelli-Holdings/audire" rel="noopener">GitHub</a>
       </nav>
+      <a class="nav-download" href="/#download">
+        <span class="os-icon" data-os-icon aria-hidden="true"></span>
+        <span>Download</span>
+      </a>
     </div>
   </header>
 
@@ -220,7 +224,7 @@
       <div class="footer-grid">
         <div>
           <a class="brand" href="/">
-            <span class="brand-mark" aria-hidden="true"></span>
+            <img class="brand-mark" src="/audire.svg" alt="" aria-hidden="true" />
             <span>Audire</span>
           </a>
           <p style="margin: 12px 0 0; max-width: 320px;">
@@ -253,6 +257,10 @@
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+  <script type="module">
+    import { mountOsBadges } from '/src/download.js';
+    mountOsBadges(document);
   </script>
 </body>
 </html>
