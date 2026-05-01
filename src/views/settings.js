@@ -48,13 +48,22 @@ export async function renderSettingsView() {
   const container = document.getElementById('view-settings');
   if (!container) return;
 
+  let profileName = '';
+  let profileEmail = '';
+  try {
+    profileName = localStorage.getItem('audire.user.displayName') || '';
+    profileEmail = localStorage.getItem('audire.user.email') || '';
+  } catch { /* localStorage unavailable */ }
+  const profileInitial = (profileName.trim()[0] || 'A').toUpperCase();
+  const profileDisplay = profileName || 'Audire';
+
   container.innerHTML = `
     <div class="settings-layout">
       <div class="settings-sidebar">
         <div class="settings-profile">
-          <div class="settings-profile-avatar">A</div>
-          <div class="settings-profile-name">Audire User</div>
-          <div class="settings-profile-email">user@audire.app</div>
+          <div class="settings-profile-avatar">${escapeHtml(profileInitial)}</div>
+          <div class="settings-profile-name">${escapeHtml(profileDisplay)}</div>
+          <div class="settings-profile-email" style="${profileEmail ? '' : 'display:none;'}">${escapeHtml(profileEmail)}</div>
         </div>
 
         <div class="settings-nav-section-label">Settings</div>
@@ -114,40 +123,30 @@ async function renderSection() {
 }
 
 function renderPreferences(panel) {
+  const storedName = (() => {
+    try { return localStorage.getItem('audire.user.displayName') || ''; } catch { return ''; }
+  })();
+  const storedEmail = (() => {
+    try { return localStorage.getItem('audire.user.email') || ''; } catch { return ''; }
+  })();
+
   panel.innerHTML = `
     <h2 class="settings-content-title">Preferences</h2>
 
     <div class="settings-toggle-row">
       <div class="settings-toggle-info">
-        <div class="settings-toggle-label">Live meeting indicator</div>
-        <div class="settings-toggle-desc">Show a visual indicator when a meeting is being transcribed</div>
+        <div class="settings-toggle-label">Display name</div>
+        <div class="settings-toggle-desc">Used in greetings and as the speaker label on your transcripts</div>
       </div>
-      <label class="toggle-switch">
-        <input type="checkbox" checked />
-        <span class="toggle-slider"></span>
-      </label>
+      <input type="text" class="inline-input" id="pref-display-name" value="${escapeHtml(storedName)}" placeholder="Your name" style="min-width:200px;" />
     </div>
 
     <div class="settings-toggle-row">
       <div class="settings-toggle-info">
-        <div class="settings-toggle-label">Open on login</div>
-        <div class="settings-toggle-desc">Automatically start Audire when you log in</div>
+        <div class="settings-toggle-label">Email</div>
+        <div class="settings-toggle-desc">Optional. Stored locally for calendar integrations</div>
       </div>
-      <label class="toggle-switch">
-        <input type="checkbox" />
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
-    <div class="settings-toggle-row">
-      <div class="settings-toggle-info">
-        <div class="settings-toggle-label">Move aside when not in use</div>
-        <div class="settings-toggle-desc">Minimize the window when not actively transcribing</div>
-      </div>
-      <label class="toggle-switch">
-        <input type="checkbox" />
-        <span class="toggle-slider"></span>
-      </label>
+      <input type="email" class="inline-input" id="pref-email" value="${escapeHtml(storedEmail)}" placeholder="you@example.com" style="min-width:200px;" />
     </div>
 
     <div class="settings-toggle-row" style="border-bottom:none;">
@@ -162,8 +161,22 @@ function renderPreferences(panel) {
     </div>
   `;
 
-  // Theme toggle
+  const nameInput = document.getElementById('pref-display-name');
+  const emailInput = document.getElementById('pref-email');
+  nameInput?.addEventListener('change', () => {
+    try { localStorage.setItem('audire.user.displayName', nameInput.value.trim()); } catch { /* ignore */ }
+    refreshUserCard();
+  });
+  emailInput?.addEventListener('change', () => {
+    try { localStorage.setItem('audire.user.email', emailInput.value.trim()); } catch { /* ignore */ }
+    refreshUserCard();
+  });
+
   const themeSelect = document.getElementById('theme-select');
+  const storedTheme = (() => {
+    try { return localStorage.getItem('audire.theme') || ''; } catch { return ''; }
+  })();
+  if (storedTheme === 'light') document.documentElement.classList.add('theme-light');
   themeSelect.value = document.documentElement.classList.contains('theme-light') ? 'light' : 'dark';
   themeSelect.addEventListener('change', () => {
     if (themeSelect.value === 'light') {
@@ -171,7 +184,29 @@ function renderPreferences(panel) {
     } else {
       document.documentElement.classList.remove('theme-light');
     }
+    try { localStorage.setItem('audire.theme', themeSelect.value); } catch { /* ignore */ }
   });
+}
+
+function refreshUserCard() {
+  let name = '';
+  try { name = localStorage.getItem('audire.user.displayName') || ''; } catch { /* ignore */ }
+  const cardName = document.querySelector('.user-card-name');
+  if (cardName) cardName.textContent = name || 'Audire';
+  const cardAvatar = document.querySelector('.user-card .user-avatar');
+  if (cardAvatar) cardAvatar.textContent = (name.trim()[0] || 'A').toUpperCase();
+  // Also update settings sidebar profile if visible.
+  const profName = document.querySelector('.settings-profile-name');
+  if (profName) profName.textContent = name || 'Audire';
+  const profAvatar = document.querySelector('.settings-profile-avatar');
+  if (profAvatar) profAvatar.textContent = (name.trim()[0] || 'A').toUpperCase();
+  let email = '';
+  try { email = localStorage.getItem('audire.user.email') || ''; } catch { /* ignore */ }
+  const profEmail = document.querySelector('.settings-profile-email');
+  if (profEmail) {
+    profEmail.textContent = email;
+    profEmail.style.display = email ? '' : 'none';
+  }
 }
 
 // Track connection errors per provider so they persist across re-renders
@@ -322,16 +357,6 @@ async function renderDetectionSection(panel) {
       </label>
     </div>
 
-    <div class="settings-toggle-row" style="border-bottom:none; opacity:0.5;">
-      <div class="settings-toggle-info">
-        <div class="settings-toggle-label">Audio detection</div>
-        <div class="settings-toggle-desc">Detect meeting audio and prompt automatically (coming soon)</div>
-      </div>
-      <label class="toggle-switch">
-        <input type="checkbox" disabled />
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
   `;
 
   // Bind toggles

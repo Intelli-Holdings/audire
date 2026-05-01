@@ -348,9 +348,9 @@ export async function renderHomeView() {
     }
   });
 
-  // Recipe shortcut
+  // Recipe shortcut — uses the canonical recipe ID from src-tauri/src/llm/recipe.rs.
   document.getElementById('home-recipe-btn')?.addEventListener('click', () => {
-    askInput.value = '/todos';
+    askInput.value = '/recent_todos';
     askInput.focus();
   });
 }

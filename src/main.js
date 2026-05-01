@@ -133,6 +133,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('user-card-btn')
     ?.addEventListener('click', () => showView('settings'));
 
+  // Populate user card from stored display name (set in Settings → Preferences).
+  // Default to the app name "Audire" when no name is set so we never show a
+  // hardcoded "Audire User" placeholder.
+  try {
+    const storedName = localStorage.getItem('audire.user.displayName') || '';
+    const cardName = document.querySelector('.user-card-name');
+    if (cardName) cardName.textContent = storedName || 'Audire';
+    const cardAvatar = document.querySelector('.user-card .user-avatar');
+    if (cardAvatar) cardAvatar.textContent = (storedName.trim()[0] || 'A').toUpperCase();
+  } catch { /* localStorage unavailable */ }
+
   // Sidebar collapse + floating restore button
   const SIDEBAR_COLLAPSED_KEY = 'audire.sidebar.collapsed';
   const sidebarEl = document.getElementById('sidebar');
@@ -156,6 +167,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch {
     setSidebarCollapsed(false);
   }
+
+  // Cross-view navigation requests (e.g. chat → settings, chat → transcript).
+  document.addEventListener('audire:navigate', (e) => {
+    const view = e?.detail?.view;
+    if (typeof view === 'string') showView(view);
+  });
 
   // Titlebar nav buttons
   document.getElementById('nav-back-btn')

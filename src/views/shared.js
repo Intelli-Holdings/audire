@@ -1,4 +1,5 @@
-// Shared with me view — empty state (no backend sharing system yet)
+// Shared with me view — currently hidden in the nav until the share backend ships.
+// Kept in the codebase so re-enabling is a one-line uncomment in index.html.
 
 let appState = null;
 

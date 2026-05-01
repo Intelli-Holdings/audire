@@ -2547,7 +2547,36 @@ body.sidebar-hidden .sidebar-restore-btn {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  position: relative;
 }
+.scope-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scope-popover[hidden] { display: none; }
+.scope-popover-item {
+  appearance: none;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 7px 10px;
+  font-size: var(--text-xs);
+  color: var(--color-text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scope-popover-item:hover { background: var(--color-surface-3); }
 .scope-dropdown {
   display: inline-flex;
   align-items: center;

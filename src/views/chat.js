@@ -7,6 +7,9 @@ let appState = null;
 let chatHistory = [];
 let recognition = null;
 let isListening = false;
+// Scope is passed verbatim to ask_audire / ask_audire_llm. Backend recognises
+// "all" (global), "meeting" (with meeting_id), and "folder" (with folder_id).
+let currentScope = { id: 'all', label: 'All meetings', meetingId: null };
 
 function escapeHtml(str) {
   const d = document.createElement('div');
@@ -64,14 +67,31 @@ export async function renderChatView() {
 
   // Pull recent meetings as "Recents" in the chat view.
   let recentMeetings = [];
+  let llmProviders = [];
+  let detectionSettings = {};
   try {
-    recentMeetings = await invoke('list_meetings');
+    [recentMeetings, llmProviders, detectionSettings] = await Promise.all([
+      invoke('list_meetings').catch(() => []),
+      invoke('list_llm_providers').catch(() => []),
+      invoke('get_detection_settings').catch(() => ({})),
+    ]);
   } catch { /* ignore */ }
   const recentsItems = [...(recentMeetings || [])]
     .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
     .slice(0, 3);
 
   const greetingName = getChatGreetingName();
+
+  // Determine the active LLM provider label. Prefer the user's preferred
+  // provider when it's available; otherwise fall back to the first available
+  // provider; otherwise show a "Set up AI" prompt that links to settings.
+  const preferredId = detectionSettings.preferred_llm_provider || '';
+  const availableProviders = llmProviders.filter((p) => p.available);
+  const activeProvider =
+    availableProviders.find((p) => p.id === preferredId) ||
+    availableProviders[0] ||
+    null;
+  const modelLabel = activeProvider ? activeProvider.name : 'Set up AI';
 
   const recentsHtml = recentsItems.length
     ? recentsItems.map(m => `
@@ -91,21 +111,19 @@ export async function renderChatView() {
         <div class="chat-composer">
           <div class="chat-composer-top">
             <div class="chat-scope-row">
-              <button class="scope-dropdown" id="chat-scope-btn" type="button">
-                <span class="scope-dropdown-primary">My notes</span>
-                <span class="scope-dropdown-secondary">All meetings</span>
+              <button class="scope-dropdown" id="chat-scope-btn" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="scope-dropdown-primary" id="chat-scope-primary">Search</span>
+                <span class="scope-dropdown-secondary" id="chat-scope-secondary">${escapeHtml(currentScope.label)}</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
               </button>
+              <div class="scope-popover" id="chat-scope-popover" role="menu" hidden></div>
             </div>
             <textarea class="chat-textarea" id="chat-view-input" placeholder="Summarize my meetings this week" rows="1"></textarea>
           </div>
           <div class="chat-composer-bottom">
             <div class="chat-composer-meta">
-              <button class="chat-attach-btn" type="button" aria-label="Attach">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
-              </button>
-              <button class="chat-model-pill" type="button">
-                <span class="chat-model-label">Sonnet 4.6</span>
+              <button class="chat-model-pill" type="button" id="chat-model-pill" title="Manage AI providers">
+                <span class="chat-model-label">${escapeHtml(modelLabel)}</span>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
               </button>
             </div>
@@ -133,11 +151,6 @@ export async function renderChatView() {
             <button class="recipe-chip" data-recipe="Write weekly recap"><span class="chip-icon recipe-amber">/</span> Write weekly recap</button>
             <button class="recipe-chip" data-recipe="Streamline my calendar"><span class="chip-icon recipe-blue">/</span> Streamline my calendar</button>
             <button class="recipe-chip" data-recipe="Blind spots"><span class="chip-icon recipe-blue">/</span> Blind spots</button>
-            <button class="recipe-chip recipe-seeall" type="button">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-              See all
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
           </div>
         </div>
       </div>
@@ -157,9 +170,12 @@ export async function renderChatView() {
   chatInput?.addEventListener('input', syncSendIcon);
   syncSendIcon();
 
-  // Scope dropdown click (placeholder behaviour — shows the button is interactive).
-  document.getElementById('chat-scope-btn')?.addEventListener('click', () => {
-    showToast('Scope picker coming soon', 'info');
+  // Scope dropdown — opens a popover listing scopes the backend supports.
+  setupScopePicker();
+
+  // Model pill jumps to AI Provider settings so the user can pick / configure.
+  document.getElementById('chat-model-pill')?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('audire:navigate', { detail: { view: 'settings' } }));
   });
 
   // Recipe chip -> prefill composer
@@ -205,8 +221,8 @@ export async function renderChatView() {
       const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
       const resp = await invoke(command, {
         query,
-        scope: 'all',
-        meetingId: null,
+        scope: currentScope.id,
+        meetingId: currentScope.meetingId,
         folderId: null,
       });
       const answer = resp.answer || 'No response.';
@@ -229,12 +245,12 @@ export async function renderChatView() {
     if (sendBtn.classList.contains('has-text')) {
       await sendQuery();
     } else {
-      toggleVoiceInput(chatInput, sendBtn, syncSendIcon);
+      await toggleVoiceInput(chatInput, sendBtn, syncSendIcon);
     }
   });
 }
 
-function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
+async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
   if (isListening && recognition) {
     recognition.stop();
     return;
@@ -242,8 +258,29 @@ function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    showToast('Speech recognition is not supported in this browser', 'error');
+    showToast('Speech recognition is not supported in this build. Voice input is unavailable on this platform.', 'error');
     return;
+  }
+
+  // Probe mic permission via getUserMedia first. This is what actually triggers
+  // the OS permission prompt on macOS / WebView2; without it the WebView's
+  // SpeechRecognition request is rejected silently as "not-allowed".
+  // We release the stream immediately — SpeechRecognition opens its own.
+  if (navigator?.mediaDevices?.getUserMedia) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (err) {
+      const reason = err?.name || 'unknown';
+      if (reason === 'NotAllowedError' || reason === 'SecurityError') {
+        showToast('Microphone access was denied. Grant mic permission to Audire in your OS settings, then try again.', 'error');
+      } else if (reason === 'NotFoundError' || reason === 'OverconstrainedError') {
+        showToast('No microphone was found on this device.', 'error');
+      } else {
+        showToast('Mic unavailable: ' + reason, 'error');
+      }
+      return;
+    }
   }
 
   recognition = new SpeechRecognition();
@@ -279,7 +316,15 @@ function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
   };
 
   recognition.onerror = (event) => {
-    if (event.error !== 'aborted') {
+    if (event.error === 'aborted' || event.error === 'no-speech') {
+      // Aborted: user pressed stop. no-speech: silence timeout. Both are fine.
+    } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      showToast('Microphone access was denied. Grant mic permission to Audire in your OS settings, then try again.', 'error');
+    } else if (event.error === 'audio-capture') {
+      showToast('No microphone was found on this device.', 'error');
+    } else if (event.error === 'network') {
+      showToast('Speech recognition needs an internet connection. Check your network and try again.', 'error');
+    } else {
       showToast('Mic error: ' + event.error, 'error');
     }
     stopListening(sendBtn);
@@ -299,6 +344,61 @@ function stopListening(sendBtn) {
   recognition = null;
   sendBtn?.classList.remove('is-listening');
   sendBtn?.setAttribute('aria-label', 'Start voice input');
+}
+
+function setupScopePicker() {
+  const btn = document.getElementById('chat-scope-btn');
+  const popover = document.getElementById('chat-scope-popover');
+  const secondary = document.getElementById('chat-scope-secondary');
+  if (!btn || !popover || !secondary) return;
+
+  // Available scopes mirror what the Rust retrieval layer accepts.
+  // "Current meeting" is only offered when the user opened the chat from a
+  // specific meeting (appState.meetingId set by transcript view).
+  const options = [
+    { id: 'all', label: 'All meetings', meetingId: null },
+  ];
+  if (appState?.meetingId) {
+    options.push({ id: 'meeting', label: 'Current meeting only', meetingId: appState.meetingId });
+  }
+
+  popover.innerHTML = options.map((opt, i) => `
+    <button class="scope-popover-item" type="button" role="menuitem" data-scope-idx="${i}">
+      ${escapeHtml(opt.label)}
+    </button>
+  `).join('');
+
+  const close = () => {
+    popover.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  const open = () => {
+    popover.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+  };
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (popover.hidden) open(); else close();
+  });
+
+  popover.addEventListener('click', (e) => {
+    const item = e.target.closest('.scope-popover-item');
+    if (!item) return;
+    const idx = Number(item.dataset.scopeIdx);
+    const opt = options[idx];
+    if (!opt) return;
+    currentScope = opt;
+    secondary.textContent = opt.label;
+    close();
+  });
+
+  // Click outside closes the popover.
+  document.addEventListener('click', (e) => {
+    if (popover.hidden) return;
+    if (popover.contains(e.target) || btn.contains(e.target)) return;
+    close();
+  });
 }
 
 function appendMessage(role, text, citations = []) {

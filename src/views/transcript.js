@@ -76,13 +76,11 @@ async function registerASRListeners() {
   });
 
   await listen('asr:partial', (event) => {
-    console.log('[audire] partial:', event.payload);
     appState.partialText = event.payload?.text || '';
     updateLiveStrip();
   });
 
   await listen('asr:final', (event) => {
-    console.log('[audire] final:', event.payload);
     const t = event.payload?.text || '';
     const ts = event.payload?.ts_ms || Date.now();
     const prov = event.payload?.provider || '';
@@ -100,12 +98,10 @@ async function registerASRListeners() {
   });
 
   await listen('asr:status', (event) => {
-    console.log('[audire] status:', event.payload);
     appState.captureStatus = event.payload?.status || '';
   });
 
   await listen('asr:lifecycle', (event) => {
-    console.log('[audire] lifecycle:', event.payload);
     const nextState = event.payload?.state || '';
     const eventMeetingId = event.payload?.meeting_id || '';
     const message = event.payload?.message || '';
@@ -860,10 +856,10 @@ function bindMeetingDetailEvents() {
     }
   });
 
-  // Recipe shortcut
+  // Recipe shortcut — uses the canonical recipe ID from src-tauri/src/llm/recipe.rs.
   document.getElementById('transcript-recipe-btn')?.addEventListener('click', () => {
     if (askInput) {
-      askInput.value = '/todos';
+      askInput.value = '/recent_todos';
       askInput.focus();
     }
   });

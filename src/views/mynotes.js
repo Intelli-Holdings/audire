@@ -140,9 +140,9 @@ export async function renderMyNotesView() {
 
       <div class="recipe-pills">
         <button class="recipe-pill" data-recipe="weekly_recap">Write weekly recap</button>
-        <button class="recipe-pill" data-recipe="coach">Coach me</button>
-        <button class="recipe-pill" data-recipe="todos">List recent todos</button>
-        <button class="recipe-pill" data-recipe="all">All recipes</button>
+        <button class="recipe-pill" data-recipe="recent_todos">List recent todos</button>
+        <button class="recipe-pill" data-recipe="summary">Summarize</button>
+        <button class="recipe-pill" data-recipe="key_decisions">Key decisions</button>
       </div>
 
       <hr class="mynotes-divider" />
