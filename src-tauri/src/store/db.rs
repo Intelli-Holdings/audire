@@ -50,11 +50,21 @@ fn domain_to_org_name(domain: &str) -> String {
 
 /// Encrypted local store (SQLCipher) for transcripts and notes.
 ///
-/// Privacy guarantees:
-/// - No audio is ever written to disk.
-/// - Only text transcripts + user notes are persisted.
-/// - DB file is encrypted at rest via SQLCipher.
-/// - DB key is from OS keyring (BYOK); never returned to WebView.
+/// Privacy guarantees enforced at the schema layer:
+/// - **Audio is never persisted, anywhere** — not on the recorder's device,
+///   not in the cloud, not ever. The schema intentionally has no
+///   `audio_bytes`, `audio_blob`, `audio_path`, or attachment column. There
+///   is no place to put audio even if a future caller tried; any such
+///   attempt would fail at the `INSERT` boundary.
+/// - Audio exists only in RAM during capture (a ring buffer feeding the
+///   streaming ASR socket) and is dropped as soon as it has been
+///   transcribed. See `src-tauri/src/audio/` and `src-tauri/src/asr/`.
+/// - Only text transcripts and user notes are persisted, and only on this
+///   device. The DB file is encrypted at rest via SQLCipher.
+/// - The DB key is fetched from the OS keyring (BYOK); it is never
+///   returned to the WebView and there is no IPC command that exposes it.
+/// - Adding any column or table that could hold audio bytes is a
+///   deliberate policy violation — reviewers should reject such changes.
 #[derive(Clone)]
 pub struct LocalStore {
     inner: Arc<Mutex<Connection>>,

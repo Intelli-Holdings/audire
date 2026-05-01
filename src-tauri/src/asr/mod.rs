@@ -300,6 +300,15 @@ fn start_system_audio(config: &CaptureConfig) -> Result<audio::system_capture::S
 }
 
 /// Spawn a task that drains audio ring buffers, resamples, and sends to WSS.
+///
+/// Privacy invariant: all audio buffers in this function (`scratch_mic`,
+/// `scratch_sys`, `mono_mic`, `mono_sys`, `mono_48k`, `mono_16k`,
+/// `pending_16k`, `frame_samples`, `frame_bytes`) live on the stack/heap
+/// of this single async task. Audio bytes are sent over a TLS WebSocket to
+/// the user-selected ASR provider and then dropped — they are never
+/// written to disk, never returned via IPC, and never copied into any
+/// long-lived store. The `debug_assert!`s below catch any future
+/// regression that lets stale audio survive a loop iteration.
 fn spawn_audio_sender(
     app: tauri::AppHandle,
     mic: Option<audio::mic_cpal::MicCapture>,
@@ -312,6 +321,7 @@ fn spawn_audio_sender(
         let mut scratch_mic = Vec::<i16>::with_capacity(48_000);
         let mut scratch_sys = Vec::<i16>::with_capacity(48_000);
         let ws_tx = ws_tx;
+        #[cfg(debug_assertions)]
         let mut first_frame_logged = false;
 
         // Accumulation buffer: downsampled 16kHz samples persist across loop
@@ -334,11 +344,23 @@ fn spawn_audio_sender(
         // Emit silence every ~200ms of real-time silence.
         let keepalive_interval = std::time::Duration::from_millis(200);
 
+        #[cfg(debug_assertions)]
         let mut total_frames_sent: u64 = 0;
 
         loop {
             scratch_mic.clear();
             scratch_sys.clear();
+            // Privacy invariant: scratch buffers must hold no audio at the
+            // start of each iteration. If a future change ever skips the
+            // clear, this fires in debug and CI before any release ships.
+            debug_assert!(
+                scratch_mic.is_empty(),
+                "scratch_mic must not retain audio across iterations"
+            );
+            debug_assert!(
+                scratch_sys.is_empty(),
+                "scratch_sys must not retain audio across iterations"
+            );
 
             if let Some(ref mut m) = mic {
                 let fmt = m.fmt;
@@ -373,6 +395,7 @@ fn spawn_audio_sender(
                 if !silence_logged {
                     if let Some(since) = empty_since {
                         if since.elapsed() >= silence_log_debounce {
+                            #[cfg(debug_assertions)]
                             eprintln!("[asr] audio sender: sustained silence (>500ms), sending keep-alives");
                             silence_logged = true;
                         }
@@ -388,6 +411,7 @@ fn spawn_audio_sender(
                         .await
                         .is_err()
                     {
+                        #[cfg(debug_assertions)]
                         eprintln!("[asr] audio sender: ws_tx send failed during keep-alive, exiting");
                         return;
                     }
@@ -405,10 +429,13 @@ fn spawn_audio_sender(
             // Log transition from empty → data only if silence was sustained.
             if was_empty {
                 if silence_logged {
-                    let gap_ms = empty_since
-                        .map(|t| t.elapsed().as_millis())
-                        .unwrap_or(0);
-                    eprintln!("[asr] audio resumed after {}ms silence", gap_ms);
+                    #[cfg(debug_assertions)]
+                    {
+                        let gap_ms = empty_since
+                            .map(|t| t.elapsed().as_millis())
+                            .unwrap_or(0);
+                        eprintln!("[asr] audio resumed after {}ms silence", gap_ms);
+                    }
                 }
                 was_empty = false;
                 empty_since = None;
@@ -472,16 +499,21 @@ fn spawn_audio_sender(
                     frame_bytes.extend_from_slice(&s.to_le_bytes());
                 }
 
-                if !first_frame_logged {
-                    eprintln!("[asr] first audio frame sent to WSS: {} bytes (pending_16k had {} samples)",
-                        frame_bytes.len(), frame_samples.len() + pending_16k.len());
-                    first_frame_logged = true;
+                #[cfg(debug_assertions)]
+                {
+                    if !first_frame_logged {
+                        eprintln!("[asr] first audio frame sent to WSS: {} bytes (pending_16k had {} samples)",
+                            frame_bytes.len(), frame_samples.len() + pending_16k.len());
+                        first_frame_logged = true;
+                    }
+                    total_frames_sent += 1;
+                    if total_frames_sent % 100 == 0 {
+                        eprintln!("[asr] audio sender: {} frames sent (10s of audio)", total_frames_sent);
+                    }
                 }
-                total_frames_sent += 1;
-                if total_frames_sent % 100 == 0 {
-                    eprintln!("[asr] audio sender: {} frames sent (10s of audio)", total_frames_sent);
-                }
+                let _ = frame_samples; // referenced only by debug logging
                 if ws_tx.send(Message::Binary(frame_bytes.into())).await.is_err() {
+                    #[cfg(debug_assertions)]
                     eprintln!("[asr] audio sender: ws_tx send failed, exiting");
                     return;
                 }

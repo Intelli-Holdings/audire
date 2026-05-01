@@ -74,6 +74,7 @@ export async function renderSettingsView() {
         <button class="settings-nav-item ${currentSection === 'ai_provider' ? 'active' : ''}" data-section="ai_provider">AI Provider</button>
 
         <div class="settings-nav-section-label">Info</div>
+        <button class="settings-nav-item ${currentSection === 'privacy' ? 'active' : ''}" data-section="privacy">Privacy</button>
         <button class="settings-nav-item ${currentSection === 'about' ? 'active' : ''}" data-section="about">About</button>
       </div>
 
@@ -115,6 +116,9 @@ async function renderSection() {
       break;
     case 'ai_provider':
       await renderAiProviderSection(panel);
+      break;
+    case 'privacy':
+      renderPrivacySection(panel);
       break;
     case 'about':
       renderAboutSection(panel);
@@ -488,7 +492,80 @@ function renderAboutSection(panel) {
         <strong>Audire</strong> &mdash; local-first meeting transcription.
       </p>
       <p style="margin-top: var(--space-3);">
-        Privacy-first: no audio written to disk, BYOK keys, encrypted DB (SQLCipher).
+        Audio is never persisted, anywhere. Transcripts and notes live in an
+        encrypted local database. Cloud providers are called only with the
+        keys you supply, and only over TLS.
+      </p>
+      <p style="margin-top: var(--space-3); color: var(--color-text-secondary); font-size: var(--text-xs);">
+        See <strong>Privacy</strong> in the sidebar for the full guarantees.
+      </p>
+    </div>
+  `;
+}
+
+function renderPrivacySection(panel) {
+  panel.innerHTML = `
+    <h2 class="settings-content-title">Privacy &amp; data</h2>
+
+    <div class="settings-info-card">
+      <h3 style="margin: 0 0 var(--space-2) 0;">Audio</h3>
+      <p>
+        <strong>Audio is never persisted, anywhere</strong> &mdash; not on this
+        device, not in the cloud, not ever. While you record, audio lives only
+        in a small ring buffer in RAM that feeds the streaming transcription
+        provider over a TLS WebSocket. The buffer is overwritten continuously
+        and dropped the moment you stop recording.
+      </p>
+      <p style="margin-top: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs);">
+        Verified at the schema layer in <code>src-tauri/src/store/db.rs</code>:
+        the local database has no <code>audio_bytes</code>, <code>audio_blob</code>,
+        or attachment column. There is no place to put audio even if a future
+        change tried.
+      </p>
+    </div>
+
+    <div class="settings-info-card" style="margin-top: var(--space-3);">
+      <h3 style="margin: 0 0 var(--space-2) 0;">Transcripts &amp; notes</h3>
+      <p>
+        Only text transcripts and notes you write are saved, and only on this
+        device. The local database is encrypted at rest using <strong>SQLCipher</strong>
+        with a key stored in your operating system's secure credential vault
+        &mdash; not on disk in plaintext, and never returned to the app's
+        WebView.
+      </p>
+    </div>
+
+    <div class="settings-info-card" style="margin-top: var(--space-3);">
+      <h3 style="margin: 0 0 var(--space-2) 0;">Cloud providers</h3>
+      <p>
+        Real-time transcription (Deepgram, AssemblyAI) and LLM features
+        (OpenAI, Anthropic, Gemini, Ollama) use <strong>your own API keys</strong>.
+        Audire reads keys in Rust core only, fetched from your OS keyring or
+        environment, and never exposes them to the WebView. All outbound
+        traffic uses TLS.
+      </p>
+    </div>
+
+    <div class="settings-info-card" style="margin-top: var(--space-3);">
+      <h3 style="margin: 0 0 var(--space-2) 0;">Telemetry</h3>
+      <p>
+        <strong>None.</strong> Audire makes outbound network calls only to the
+        providers you have configured. There is no analytics, no crash
+        reporter, no usage tracking, no first-run beacon.
+      </p>
+    </div>
+
+    <div class="settings-info-card" style="margin-top: var(--space-3);">
+      <h3 style="margin: 0 0 var(--space-2) 0;">Audire Sync (optional)</h3>
+      <p>
+        Audire Sync is a separate, opt-in service. If you choose to sign in,
+        transcripts and notes are end-to-end encrypted on this device before
+        upload &mdash; the sync server stores ciphertext only and cannot read
+        your data. <strong>Audio is still never synced</strong>, because it
+        was never saved in the first place.
+      </p>
+      <p style="margin-top: var(--space-2); color: var(--color-text-secondary); font-size: var(--text-xs);">
+        You are not signed in. Sync is off.
       </p>
     </div>
   `;
