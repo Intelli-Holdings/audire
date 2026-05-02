@@ -4,6 +4,7 @@
 // when a meeting is about to start (within `calendar_lead_minutes`).
 
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 
 use crate::keyvault::vault::KeyVault;
@@ -122,7 +123,43 @@ async fn poll_calendar(
         if let Err(e) = app_handle.emit("detection://prompt", &payload) {
             eprintln!("[detection] failed to emit prompt event: {}", e);
         }
+
+        send_meeting_notification(app_handle, &event.title, &event.start, diff);
     }
 
     Ok(())
+}
+
+fn send_meeting_notification(
+    app_handle: &AppHandle,
+    title: &str,
+    start: &str,
+    diff: chrono::Duration,
+) {
+    let minutes = diff.num_minutes().max(0);
+    let when = if minutes <= 0 {
+        "now".to_string()
+    } else if minutes == 1 {
+        "in 1 minute".to_string()
+    } else {
+        format!("in {} minutes", minutes)
+    };
+
+    let body = format!(
+        "{} starts {}. Open Audire to record this meeting.",
+        title, when
+    );
+
+    let _ = start;
+
+    let result = app_handle
+        .notification()
+        .builder()
+        .title("Meeting starting soon")
+        .body(body)
+        .show();
+
+    if let Err(e) = result {
+        eprintln!("[detection] failed to show OS notification: {}", e);
+    }
 }

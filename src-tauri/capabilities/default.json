@@ -4,6 +4,13 @@
   "windows": ["main", "recorder-pill"],
   "permissions": [
     "core:default",
-    "core:event:default"
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission"
   ]
 }

@@ -226,9 +226,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   showView('home');
 
   // ---- Detection system ----
+  // Ensure OS notification permission so the user is alerted when minimized
+  ensureNotificationPermission();
+
   // Listen for meeting-about-to-start prompts from the background detector
-  listen('detection://prompt', (event) => {
+  listen('detection://prompt', async (event) => {
     showDetectionPrompt(event.payload);
+    // Surface the window so the in-app prompt is visible even when minimized
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+      await win.unminimize();
+      await win.show();
+      await win.setFocus();
+    } catch { /* ignore in dev/web */ }
   });
 
   // Start the background detection loop
@@ -314,4 +325,18 @@ function escapeHtmlSimple(str) {
   const d = document.createElement('div');
   d.textContent = str ?? '';
   return d.innerHTML;
+}
+
+async function ensureNotificationPermission() {
+  try {
+    const mod = await import('@tauri-apps/plugin-notification');
+    const granted = await mod.isPermissionGranted();
+    if (!granted) {
+      await mod.requestPermission();
+    }
+  } catch (e) {
+    // Plugin unavailable in dev or permission denied — fall back silently to
+    // the in-app prompt overlay (which still fires via detection://prompt).
+    console.warn('Notification permission unavailable:', e);
+  }
 }

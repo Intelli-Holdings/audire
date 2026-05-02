@@ -25,7 +25,7 @@ use crate::store::db::LocalStore;
 use crate::sync::crypto::{aead_open, aead_seal, VaultKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
     FolderUpsert {
         remote_id: String,

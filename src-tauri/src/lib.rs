@@ -18,7 +18,18 @@ pub fn run() {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install rustls crypto provider");
+
+    // WebView2 (Windows) denies getUserMedia origin permissions by default,
+    // even when the OS-level mic toggle for the WebView2 runtime is on. Pass
+    // the Chromium flag that auto-accepts the in-WebView permission gate so
+    // the chat view's Web Speech API and any future getUserMedia calls work.
+    // Real devices are still used — this only suppresses the WebView prompt.
+    // Must be set before the WebView2 environment is created.
+    #[cfg(target_os = "windows")]
+    configure_webview2_media_permission();
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState::new().expect("failed to init AppState"))
         .invoke_handler(tauri::generate_handler![
             ipc::start_capture,
@@ -97,4 +108,25 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Audire");
+}
+
+#[cfg(target_os = "windows")]
+fn configure_webview2_media_permission() {
+    const FLAG: &str = "--use-fake-ui-for-media-stream";
+    const VAR: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+    let merged = match std::env::var(VAR) {
+        Ok(existing) if !existing.is_empty() => {
+            if existing.split_whitespace().any(|a| a == FLAG) {
+                existing
+            } else {
+                format!("{existing} {FLAG}")
+            }
+        }
+        _ => FLAG.to_string(),
+    };
+    // SAFETY: set_var is the only way to influence WebView2 startup args, and
+    // we run this on the main thread before tauri::Builder spawns any threads.
+    unsafe {
+        std::env::set_var(VAR, merged);
+    }
 }
