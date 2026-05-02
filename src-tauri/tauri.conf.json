@@ -30,6 +30,10 @@
     "publisher": "Intell Holdings Inc",
     "copyright": "Copyright © 2026 Intell Holdings Inc. All rights reserved.",
     "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "category": "Productivity",

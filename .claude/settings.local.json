@@ -24,7 +24,8 @@
       "Bash(bash:*)",
       "Bash(cargo test:*)",
       "Bash(cmd:*)",
-      "Bash(cargo clean:*)"
+      "Bash(cargo clean:*)",
+      "PowerShell(bun run tauri icon \"src-tauri/icons/Audire logo.png\" 2>&1)"
     ]
   }
 }
