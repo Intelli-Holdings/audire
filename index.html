@@ -6,8 +6,6 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src https://fonts.bunny.net; script-src 'self'; connect-src ipc: http://ipc.localhost https://ipc.localhost ws://localhost:* http://localhost:*;" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Audire</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=dm-sans:400,500,600|jetbrains-mono:400,500" rel="stylesheet">
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -29,12 +27,13 @@
 
         <!-- Search -->
         <div class="sidebar-search">
-          <input type="text" class="sidebar-search-input" id="sidebar-search" placeholder="Search   Ctrl+K" />
+          <label class="visually-hidden" for="sidebar-search">Search notes</label>
+          <input type="search" class="sidebar-search-input" id="sidebar-search" placeholder="Search   Ctrl+K" autocomplete="off" />
         </div>
 
         <!-- Primary nav -->
         <nav class="sidebar-nav" role="navigation">
-          <a class="nav-item active" data-view="home" role="button" tabindex="0">
+          <button class="nav-item active" data-view="home" type="button" aria-current="page">
             <span class="nav-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
@@ -42,7 +41,7 @@
               </svg>
             </span>
             <span class="nav-label">Home</span>
-          </a>
+          </button>
           <!-- "Shared with me" is hidden in the nav until the sharing backend ships.
                The view (src/views/shared.js) and target div (#view-shared) are kept
                in place so re-enabling is a one-line uncomment. -->
@@ -60,20 +59,20 @@
           </a>
           -->
 
-          <a class="nav-item" data-view="chat" role="button" tabindex="0">
+          <button class="nav-item" data-view="chat" type="button">
             <span class="nav-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </span>
             <span class="nav-label">Chat</span>
-          </a>
+          </button>
         </nav>
 
         <!-- Spaces section -->
         <div class="sidebar-section-label">Spaces</div>
         <div class="sidebar-spaces" id="sidebar-spaces">
-          <a class="nav-item" data-view="mynotes" role="button" tabindex="0">
+          <button class="nav-item" data-view="mynotes" type="button">
             <span class="nav-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
@@ -81,18 +80,18 @@
               </svg>
             </span>
             <span class="nav-label">My notes</span>
-          </a>
+          </button>
           <!-- Folders injected here by sidebar.js -->
           <div id="sidebar-folder-list"></div>
-          <button class="sidebar-add-folder" id="add-folder-btn">
-            <span style="opacity:0.5;">+</span>
+          <button class="sidebar-add-folder" id="add-folder-btn" type="button" aria-label="Create folder">
+            <span aria-hidden="true" style="opacity:0.5;">+</span>
             <span>Add folder</span>
           </button>
         </div>
 
         <!-- Bottom area -->
         <div class="sidebar-bottom">
-          <button class="user-card" id="user-card-btn" aria-label="Open settings">
+          <button class="user-card" id="user-card-btn" type="button" aria-label="Open settings">
             <div class="user-avatar">A</div>
             <div class="user-card-info">
               <span class="user-card-name">Audire</span>
@@ -108,13 +107,13 @@
         <!-- Titlebar -->
         <div class="titlebar" data-tauri-drag-region>
           <div class="titlebar-left">
-            <button class="titlebar-nav-btn" id="nav-back-btn" title="Go back">
+            <button class="titlebar-nav-btn" id="nav-back-btn" type="button" title="Go back" aria-label="Go back" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
             </button>
-            <button class="titlebar-nav-btn" id="nav-forward-btn" title="Go forward">
+            <button class="titlebar-nav-btn" id="nav-forward-btn" type="button" title="Go forward" aria-label="Go forward" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
             </button>
-            <button class="titlebar-nav-btn" id="nav-home-btn" title="Home">
+            <button class="titlebar-nav-btn" id="nav-home-btn" type="button" title="Home" aria-label="Home">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
               </svg>
@@ -122,11 +121,11 @@
           </div>
           <div class="titlebar-center"></div>
           <div class="titlebar-right">
-            <button class="btn-quick-note" id="quick-note-btn">+ Quick note</button>
+            <button class="btn-quick-note" id="quick-note-btn" type="button">+ Quick note</button>
             <div class="window-controls">
-              <button class="window-ctrl-btn" id="win-minimize">&mdash;</button>
-              <button class="window-ctrl-btn" id="win-maximize">&#9633;</button>
-              <button class="window-ctrl-btn close" id="win-close">&times;</button>
+              <button class="window-ctrl-btn" id="win-minimize" type="button" aria-label="Minimize window">&mdash;</button>
+              <button class="window-ctrl-btn" id="win-maximize" type="button" aria-label="Maximize window">&#9633;</button>
+              <button class="window-ctrl-btn close" id="win-close" type="button" aria-label="Close window">&times;</button>
             </div>
           </div>
         </div>
@@ -153,20 +152,21 @@
     </div>
 
     <!-- Folder modal -->
-    <div id="folder-modal" class="modal-overlay" style="display:none;">
+    <div id="folder-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title" aria-describedby="folder-modal-desc" style="display:none;">
       <div class="modal-card">
-        <h3 class="modal-title">Create private folder</h3>
+        <h3 class="modal-title" id="folder-modal-title">Create private folder</h3>
+        <p class="modal-description" id="folder-modal-desc">Name the space where related private notes should live.</p>
         <div class="modal-field">
-          <label class="modal-label">Name</label>
+          <label class="modal-label" for="folder-name-input">Name</label>
           <input type="text" class="modal-input" id="folder-name-input" placeholder="Folder name" />
         </div>
         <div class="modal-field">
-          <label class="modal-label">Description (optional)</label>
+          <label class="modal-label" for="folder-desc-input">Description (optional)</label>
           <textarea class="modal-textarea" id="folder-desc-input" placeholder="What is this folder for?"></textarea>
         </div>
         <div class="modal-actions">
-          <button class="btn-ghost btn-sm" id="folder-cancel-btn">Cancel</button>
-          <button class="btn-primary btn-sm" id="folder-create-btn">Create</button>
+          <button class="btn-ghost btn-sm" id="folder-cancel-btn" type="button">Cancel</button>
+          <button class="btn-primary btn-sm" id="folder-create-btn" type="button" disabled>Create</button>
         </div>
       </div>
     </div>

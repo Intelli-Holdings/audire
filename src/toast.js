@@ -11,12 +11,17 @@ export function showToast(message, type = 'info') {
 
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   toast.textContent = message;
   container.appendChild(toast);
 
-  requestAnimationFrame(() => toast.classList.add('toast-visible'));
-  setTimeout(() => {
+  const dismiss = () => {
     toast.classList.remove('toast-visible');
     setTimeout(() => toast.remove(), 250);
-  }, 3000);
+  };
+
+  toast.addEventListener('click', dismiss);
+  requestAnimationFrame(() => toast.classList.add('toast-visible'));
+  setTimeout(dismiss, 3000);
 }

@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
+import { trapDialogFocus } from '../interaction.js';
 
 let appState = null;
 let currentSection = 'preferences';
@@ -516,7 +517,7 @@ async function renderAiProviderSection(panel) {
 
     ${providerRowsHtml}
 
-    <h3 style="margin-top:var(--space-6); margin-bottom:var(--space-3); font-size:var(--text-sm); color:var(--color-text-muted); text-transform:uppercase; letter-spacing:0.04em;">Ollama Configuration</h3>
+    <h3 style="margin-top:var(--space-6); margin-bottom:var(--space-3); font-size:var(--text-sm); color:var(--color-text-muted); text-transform:uppercase; letter-spacing:0;">Ollama Configuration</h3>
     <div class="key-row">
       <div class="key-row-info" style="flex-direction:column; align-items:flex-start; gap:var(--space-2);">
         <input type="text" class="inline-input" id="ollama-endpoint" placeholder="http://localhost:11434" value="${escapeHtml(ollamaEndpoint)}" style="width:100%;" />
@@ -774,9 +775,9 @@ function renderAccountSignedOut(panel) {
       const dialog = document.createElement('div');
       dialog.className = 'modal-backdrop';
       dialog.innerHTML = `
-        <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;">
-          <h3>Save your recovery key</h3>
-          <p>This is shown <strong>once</strong>. If you forget your passphrase, this is the only way to recover access to your shared notes. Store it offline.</p>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="recovery-title" aria-describedby="recovery-desc" style="max-width:520px;">
+          <h3 id="recovery-title">Save your recovery key</h3>
+          <p id="recovery-desc">This is shown <strong>once</strong>. If you forget your passphrase, this is the only way to recover access to your shared notes. Store it offline.</p>
           <pre id="recovery-hex" style="background:var(--color-surface-2); padding:var(--space-3); border-radius:var(--radius-md); user-select:all;">${escapeHtml(recovery_hex)}</pre>
           <div style="display:flex; gap:var(--space-2); justify-content:flex-end;">
             <button class="btn btn-secondary" id="copy-recovery">Copy</button>
@@ -784,13 +785,21 @@ function renderAccountSignedOut(panel) {
           </div>
         </div>`;
       document.body.appendChild(dialog);
+      let releaseDialogFocus = null;
+      const closeRecoveryDialog = () => {
+        releaseDialogFocus?.();
+        document.body.removeChild(dialog);
+        renderAccountSection(document.getElementById('settings-content-panel'));
+      };
+      releaseDialogFocus = trapDialogFocus(dialog, {
+        initialFocus: dialog.querySelector('#copy-recovery'),
+      });
       dialog.querySelector('#copy-recovery').addEventListener('click', () => {
         navigator.clipboard.writeText(recovery_hex);
         showToast('Recovery key copied', 'success');
       });
       dialog.querySelector('#dismiss-recovery').addEventListener('click', () => {
-        document.body.removeChild(dialog);
-        renderAccountSection(document.getElementById('settings-content-panel'));
+        closeRecoveryDialog();
       });
       showToast('Account created', 'success');
     } catch (e) {
@@ -954,12 +963,17 @@ function bindKeyEvents() {
       const key = input?.value.trim();
       if (!key) return;
       try {
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
         await invoke('save_api_key', { provider, key });
         input.value = '';
         showToast(`${provider} key saved`, 'success');
         await renderConnectorsSection(document.getElementById('settings-content-panel'));
       } catch (e) {
         showToast('Failed to save key: ' + e, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
       }
     });
   });
@@ -979,12 +993,16 @@ function bindKeyEvents() {
   document.querySelectorAll('[data-delete-key]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const provider = btn.dataset.deleteKey;
+      if (!confirm(`Delete the saved ${provider} API key?`)) return;
       try {
+        btn.disabled = true;
         await invoke('delete_api_key', { provider });
         showToast(`${provider} key deleted`, 'success');
         await renderConnectorsSection(document.getElementById('settings-content-panel'));
       } catch (e) {
         showToast('Failed to delete key: ' + e, 'error');
+      } finally {
+        btn.disabled = false;
       }
     });
   });
@@ -1000,12 +1018,17 @@ function bindCalendarEvents() {
       const tenantId = document.getElementById(`cal-tenant-${provider}`)?.value.trim() || null;
       if (!clientId) return;
       try {
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
         await invoke('save_calendar_config', { provider, clientId, clientSecret, tenantId });
         delete calendarErrors[provider];
         showToast(`${provider} calendar config saved`, 'success');
         await renderCalendarSection(document.getElementById('settings-content-panel'));
       } catch (e) {
         showToast('Failed to save calendar config: ' + e, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save config';
       }
     });
   });
@@ -1034,13 +1057,17 @@ function bindCalendarEvents() {
   document.querySelectorAll('[data-disconnect-cal]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const provider = btn.dataset.disconnectCal;
+      if (!confirm(`Disconnect ${provider} calendar? Upcoming events will stop appearing until you reconnect.`)) return;
       try {
+        btn.disabled = true;
         await invoke('disconnect_calendar_provider', { provider });
         delete calendarErrors[provider];
         showToast(`${provider} calendar disconnected`, 'success');
         await renderCalendarSection(document.getElementById('settings-content-panel'));
       } catch (e) {
         showToast('Failed to disconnect: ' + e, 'error');
+      } finally {
+        btn.disabled = false;
       }
     });
   });

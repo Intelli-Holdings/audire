@@ -85,14 +85,14 @@ export async function renderPeopleView() {
     <div class="data-view">
       <div class="data-view-header">
         <h1 class="data-view-title">People</h1>
-        <button class="btn-ghost btn-sm" id="toggle-add-person">+ Add person</button>
+        <button class="btn-ghost btn-sm" id="toggle-add-person" type="button" aria-expanded="false" aria-controls="add-person-form">+ Add person</button>
       </div>
 
       <div class="inline-add-form" id="add-person-form" hidden>
-        <input class="inline-input" placeholder="Name" id="new-person-name" style="flex:1;" />
+        <input class="inline-input" placeholder="Name" id="new-person-name" style="flex:1;" autocomplete="name" />
         <input class="inline-input" placeholder="Email (optional)" id="new-person-email" style="flex:1;" />
-        <button class="btn-primary btn-sm" id="save-person-btn">Add</button>
-        <button class="btn-ghost btn-sm" id="cancel-person-btn">Cancel</button>
+        <button class="btn-primary btn-sm" id="save-person-btn" type="button" disabled>Add</button>
+        <button class="btn-ghost btn-sm" id="cancel-person-btn" type="button">Cancel</button>
       </div>
 
       ${tableHtml || `
@@ -106,12 +106,34 @@ export async function renderPeopleView() {
 
   // Toggle add form
   const addForm = document.getElementById('add-person-form');
-  document.getElementById('toggle-add-person')?.addEventListener('click', () => {
-    addForm.hidden = !addForm.hidden;
-    if (!addForm.hidden) document.getElementById('new-person-name')?.focus();
-  });
-  document.getElementById('cancel-person-btn')?.addEventListener('click', () => {
+  const toggleBtn = document.getElementById('toggle-add-person');
+  const nameInput = document.getElementById('new-person-name');
+  const emailInput = document.getElementById('new-person-email');
+  const saveBtn = document.getElementById('save-person-btn');
+
+  function closeForm() {
     addForm.hidden = true;
+    toggleBtn?.setAttribute('aria-expanded', 'false');
+    if (nameInput) nameInput.value = '';
+    if (emailInput) emailInput.value = '';
+    if (saveBtn) saveBtn.disabled = true;
+  }
+
+  toggleBtn?.addEventListener('click', () => {
+    addForm.hidden = !addForm.hidden;
+    toggleBtn.setAttribute('aria-expanded', String(!addForm.hidden));
+    if (!addForm.hidden) nameInput?.focus();
+  });
+  document.getElementById('cancel-person-btn')?.addEventListener('click', closeForm);
+  nameInput?.addEventListener('input', () => {
+    if (saveBtn) saveBtn.disabled = !nameInput.value.trim();
+  });
+  addForm?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeForm();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveBtn?.click();
+    }
   });
 
   // Save person
@@ -120,11 +142,16 @@ export async function renderPeopleView() {
     if (!name) return;
     const email = document.getElementById('new-person-email')?.value.trim() || null;
     try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Adding...';
       await invoke('add_participant', { meetingId: null, name, email });
       showToast('Person added', 'success');
       await renderPeopleView();
     } catch (e) {
       showToast('Failed to add person: ' + e, 'error');
+    } finally {
+      saveBtn.disabled = !document.getElementById('new-person-name')?.value.trim();
+      saveBtn.textContent = 'Add';
     }
   });
 }

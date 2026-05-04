@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
 import { showView } from '../sidebar.js';
+import { bindTextareaSubmit, setTextareaValue, setupAutosizeTextarea } from '../interaction.js';
 
 let appState = null;
 let onNavigateToTranscript = null;
@@ -53,11 +54,19 @@ export async function renderMyNotesView() {
 
   let standaloneNotes = [];
   let meetings = [];
+  let selectedFolder = null;
   try {
-    [standaloneNotes, meetings] = await Promise.all([
-      invoke('list_standalone_notes'),
-      invoke('list_meetings'),
-    ]);
+    if (appState.selectedFolderId) {
+      const detail = await invoke('get_folder_detail', { folderId: appState.selectedFolderId });
+      selectedFolder = detail.folder || null;
+      standaloneNotes = detail.standalone_notes || [];
+      meetings = detail.meetings || [];
+    } else {
+      [standaloneNotes, meetings] = await Promise.all([
+        invoke('list_standalone_notes'),
+        invoke('list_meetings'),
+      ]);
+    }
   } catch (e) {
     console.error('My notes data load error:', e);
   }
@@ -118,10 +127,13 @@ export async function renderMyNotesView() {
   if (!listHtml) {
     listHtml = `
       <div style="padding: var(--space-8) 0; text-align: center;">
-        <p class="text-muted text-sm">No notes yet. Create a quick note or start a recording session.</p>
+        <p class="text-muted text-sm">${selectedFolder ? 'No notes in this folder yet.' : 'No notes yet. Create a quick note or start a recording session.'}</p>
       </div>
     `;
   }
+
+  const title = selectedFolder?.name || 'My notes';
+  const subtitle = selectedFolder?.description || (selectedFolder ? 'Private folder' : 'Your private notes and folders');
 
   container.innerHTML = `
     <div class="mynotes-view">
@@ -130,11 +142,11 @@ export async function renderMyNotesView() {
           <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
           <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
         </svg>
-        <h2 class="mynotes-title">My notes</h2>
+        <h2 class="mynotes-title">${escapeHtml(title)}</h2>
       </div>
-      <p class="mynotes-subtitle">Your private notes and folders</p>
+      <p class="mynotes-subtitle">${escapeHtml(subtitle)}</p>
 
-      <div class="mynotes-banner">
+      <div class="mynotes-banner" ${selectedFolder ? 'hidden' : ''}>
         <strong>Your private space</strong> &mdash; Your notes live here by default. Only you can see them unless you share.
       </div>
 
@@ -150,7 +162,7 @@ export async function renderMyNotesView() {
       ${listHtml}
     </div>
     <div class="view-bottom-bar">
-      <input type="text" class="ask-input" id="mynotes-ask-input" placeholder="Ask anything about My notes" />
+      <textarea class="ask-input prompt-textarea" id="mynotes-ask-input" placeholder="${selectedFolder ? `Ask anything about ${escapeHtml(title)}` : 'Ask anything about My notes'}" rows="1"></textarea>
     </div>
   `;
 
@@ -175,39 +187,42 @@ export async function renderMyNotesView() {
     btn.addEventListener('click', () => {
       const askInput = document.getElementById('mynotes-ask-input');
       if (askInput) {
-        askInput.value = '/' + btn.dataset.recipe;
-        askInput.focus();
+        setTextareaValue(askInput, '/' + btn.dataset.recipe, { focus: true, scrollToEnd: true });
       }
     });
   });
 
   // Ask input
   const askInput = document.getElementById('mynotes-ask-input');
-  askInput?.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const query = askInput.value.trim();
-      if (!query) return;
-      askInput.value = '';
+  setupAutosizeTextarea(askInput, { minRows: 1, maxVh: 0.28 });
+  bindTextareaSubmit(askInput, async () => {
+    const query = askInput.value.trim();
+    if (!query) return;
+    setTextareaValue(askInput, '', { scrollToEnd: true });
+    try {
+      askInput.disabled = true;
+      askInput.placeholder = 'Thinking...';
+      let hasLlm = false;
       try {
-        let hasLlm = false;
-        try {
-          const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
-          const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-          const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
-          hasLlm = hasAnthropic || hasOpenai || hasGemini;
-        } catch { /* ignore */ }
-        const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
-        const resp = await invoke(command, {
-          query,
-          scope: 'all',
-          meetingId: null,
-          folderId: null,
-        });
-        showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
-      } catch (err) {
-        showToast('Error: ' + err, 'error');
-      }
+        const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
+        const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
+        const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
+        hasLlm = hasAnthropic || hasOpenai || hasGemini;
+      } catch { /* ignore */ }
+      const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
+      const resp = await invoke(command, {
+        query,
+        scope: appState.selectedFolderId ? 'folder' : 'all',
+        meetingId: null,
+        folderId: appState.selectedFolderId || null,
+      });
+      showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
+    } catch (err) {
+      showToast('Error: ' + err, 'error');
+    } finally {
+      askInput.disabled = false;
+      askInput.placeholder = selectedFolder ? `Ask anything about ${title}` : 'Ask anything about My notes';
+      askInput.focus();
     }
   });
 }

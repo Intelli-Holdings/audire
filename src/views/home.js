@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
 import { startCapture } from '../sidebar.js';
+import { bindTextareaSubmit, setTextareaValue, setupAutosizeTextarea } from '../interaction.js';
 
 let appState = null;
 let onNavigateToTranscript = null;
@@ -128,7 +129,7 @@ function renderSkeleton() {
         ${skeletonMeeting(170, 110)}
       </div>
       <div class="home-composer" style="opacity:0.4;">
-        <input type="text" class="ask-input" placeholder="Ask anything" disabled />
+        <textarea class="ask-input prompt-textarea" placeholder="Ask anything" rows="1" disabled></textarea>
         <button class="recipe-shortcut-btn" disabled>/ List recent todos</button>
       </div>
     </div>`;
@@ -215,7 +216,7 @@ export async function renderHomeView() {
                 <span class="calendar-event-title">${escapeHtml(ev.title || 'Untitled event')}</span>
                 <span class="calendar-event-time">${escapeHtml(timeRange)}${attendeeHint}</span>
               </div>
-              <button class="calendar-event-record-btn" title="Record this meeting">
+              <button class="calendar-event-record-btn" type="button" title="Record this meeting" aria-label="Record ${escapeHtml(ev.title || 'this meeting')}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
               </button>
             </div>`;
@@ -292,7 +293,7 @@ export async function renderHomeView() {
       ${eventsHtml}
       ${meetingListHtml}
       <div class="home-composer">
-        <input type="text" class="ask-input" id="home-ask-input" placeholder="Ask anything" />
+        <textarea class="ask-input prompt-textarea" id="home-ask-input" placeholder="Ask anything" rows="1"></textarea>
         <button class="recipe-shortcut-btn" id="home-recipe-btn">/ List recent todos</button>
       </div>
     </div>`;
@@ -321,36 +322,43 @@ export async function renderHomeView() {
 
   // Ask input
   const askInput = document.getElementById('home-ask-input');
-  askInput?.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const query = askInput.value.trim();
-      if (!query) return;
-      askInput.value = '';
+  setupAutosizeTextarea(askInput, { minRows: 1, maxVh: 0.28 });
+  bindTextareaSubmit(askInput, async () => {
+    const query = askInput.value.trim();
+    if (!query) return;
+    const recipeBtn = document.getElementById('home-recipe-btn');
+    const originalPlaceholder = askInput.placeholder;
+    setTextareaValue(askInput, '', { scrollToEnd: true });
+    askInput.disabled = true;
+    askInput.placeholder = 'Thinking...';
+    if (recipeBtn) recipeBtn.disabled = true;
+    try {
+      let hasLlm = false;
       try {
-        let hasLlm = false;
-        try {
-          const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
-          const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-          hasLlm = hasAnthropic || hasOpenai;
-        } catch { /* ignore */ }
-        const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
-        const resp = await invoke(command, {
-          query,
-          scope: 'all',
-          meetingId: null,
-          folderId: null,
-        });
-        showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
-      } catch (err) {
-        showToast('Error: ' + err, 'error');
-      }
+        const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
+        const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
+        hasLlm = hasAnthropic || hasOpenai;
+      } catch { /* ignore */ }
+      const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
+      const resp = await invoke(command, {
+        query,
+        scope: 'all',
+        meetingId: null,
+        folderId: null,
+      });
+      showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
+    } catch (err) {
+      showToast('Error: ' + err, 'error');
+    } finally {
+      askInput.disabled = false;
+      askInput.placeholder = originalPlaceholder;
+      if (recipeBtn) recipeBtn.disabled = false;
+      askInput.focus();
     }
   });
 
   // Recipe shortcut — uses the canonical recipe ID from src-tauri/src/llm/recipe.rs.
   document.getElementById('home-recipe-btn')?.addEventListener('click', () => {
-    askInput.value = '/recent_todos';
-    askInput.focus();
+    setTextareaValue(askInput, '/recent_todos', { focus: true, scrollToEnd: true });
   });
 }

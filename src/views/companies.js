@@ -89,14 +89,14 @@ export async function renderCompaniesView() {
     <div class="data-view">
       <div class="data-view-header">
         <h1 class="data-view-title">Companies</h1>
-        <button class="btn-ghost btn-sm" id="toggle-add-company">+ Add company</button>
+        <button class="btn-ghost btn-sm" id="toggle-add-company" type="button" aria-expanded="false" aria-controls="add-company-form">+ Add company</button>
       </div>
 
       <div class="inline-add-form" id="add-company-form" hidden>
         <input class="inline-input" placeholder="Company name" id="new-org-name" style="flex:1;" />
         <input class="inline-input" placeholder="Domain (optional)" id="new-org-domain" style="flex:1;" />
-        <button class="btn-primary btn-sm" id="save-org-btn">Add</button>
-        <button class="btn-ghost btn-sm" id="cancel-org-btn">Cancel</button>
+        <button class="btn-primary btn-sm" id="save-org-btn" type="button" disabled>Add</button>
+        <button class="btn-ghost btn-sm" id="cancel-org-btn" type="button">Cancel</button>
       </div>
 
       ${tableHtml || `
@@ -110,12 +110,34 @@ export async function renderCompaniesView() {
 
   // Toggle add form
   const addForm = document.getElementById('add-company-form');
-  document.getElementById('toggle-add-company')?.addEventListener('click', () => {
-    addForm.hidden = !addForm.hidden;
-    if (!addForm.hidden) document.getElementById('new-org-name')?.focus();
-  });
-  document.getElementById('cancel-org-btn')?.addEventListener('click', () => {
+  const toggleBtn = document.getElementById('toggle-add-company');
+  const nameInput = document.getElementById('new-org-name');
+  const domainInput = document.getElementById('new-org-domain');
+  const saveBtn = document.getElementById('save-org-btn');
+
+  function closeForm() {
     addForm.hidden = true;
+    toggleBtn?.setAttribute('aria-expanded', 'false');
+    if (nameInput) nameInput.value = '';
+    if (domainInput) domainInput.value = '';
+    if (saveBtn) saveBtn.disabled = true;
+  }
+
+  toggleBtn?.addEventListener('click', () => {
+    addForm.hidden = !addForm.hidden;
+    toggleBtn.setAttribute('aria-expanded', String(!addForm.hidden));
+    if (!addForm.hidden) nameInput?.focus();
+  });
+  document.getElementById('cancel-org-btn')?.addEventListener('click', closeForm);
+  nameInput?.addEventListener('input', () => {
+    if (saveBtn) saveBtn.disabled = !nameInput.value.trim();
+  });
+  addForm?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeForm();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveBtn?.click();
+    }
   });
 
   // Save company
@@ -124,11 +146,16 @@ export async function renderCompaniesView() {
     if (!name) return;
     const domain = document.getElementById('new-org-domain')?.value.trim() || null;
     try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Adding...';
       await invoke('add_organization', { name, domain });
       showToast('Company added', 'success');
       await renderCompaniesView();
     } catch (e) {
       showToast('Failed to add company: ' + e, 'error');
+    } finally {
+      saveBtn.disabled = !document.getElementById('new-org-name')?.value.trim();
+      saveBtn.textContent = 'Add';
     }
   });
 }

@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
+import { setupAutosizeTextarea } from '../interaction.js';
 
 let appState = null;
 let onNavigateToTranscript = null;
@@ -39,7 +40,7 @@ export function initNotesView(state, callbacks = {}) {
 
 export async function renderNotesView() {
   if (noteAutoSaveHandle) {
-    clearInterval(noteAutoSaveHandle);
+    clearTimeout(noteAutoSaveHandle);
     noteAutoSaveHandle = null;
   }
 
@@ -94,9 +95,9 @@ export async function renderNotesView() {
   // Note list clicks
   bindNoteListClicks();
 
-  // If we have a previously selected note, re-select it
-  if (currentNoteId && currentNoteType === 'standalone') {
-    await openStandaloneNote(currentNoteId);
+  const selectedStandaloneId = appState.selectedStandaloneNoteId || currentNoteId;
+  if (selectedStandaloneId && currentNoteType !== 'meeting') {
+    await openStandaloneNote(Number(selectedStandaloneId));
   }
 }
 
@@ -181,7 +182,7 @@ async function openStandaloneNote(noteId) {
   currentNoteType = 'standalone';
 
   if (noteAutoSaveHandle) {
-    clearInterval(noteAutoSaveHandle);
+    clearTimeout(noteAutoSaveHandle);
     noteAutoSaveHandle = null;
   }
 
@@ -217,6 +218,8 @@ async function openStandaloneNote(noteId) {
         <option value="">No folder</option>
         ${folderOptions}
       </select>
+      <span class="note-save-status" id="note-save-status" role="status" aria-live="polite">Saved</span>
+      <button class="note-save-retry" id="note-save-retry" type="button" hidden>Retry</button>
     </div>
     <textarea
       class="note-body text-user"
@@ -225,45 +228,85 @@ async function openStandaloneNote(noteId) {
       spellcheck="true"
     >${escapeHtml(note.text || '')}</textarea>
     <div class="note-editor-actions">
-      <button class="btn-ghost btn-sm btn-danger" id="note-delete-btn">Delete note</button>
+      <button class="btn-ghost btn-sm btn-danger" id="note-delete-btn" type="button">Delete note</button>
     </div>
   `;
 
   const titleInput = document.getElementById('note-title-input');
   const bodyInput = document.getElementById('note-body-input');
+  const saveStatus = document.getElementById('note-save-status');
+  const retryBtn = document.getElementById('note-save-retry');
+  setupAutosizeTextarea(bodyInput, { minRows: 14, maxVh: 0.62 });
+  if (note.title === 'Untitled') {
+    titleInput?.focus();
+  } else {
+    bodyInput?.focus();
+  }
 
-  // Save on blur
+  let lastText = bodyInput?.value || '';
+  let lastTitle = titleInput?.value || '';
+
+  function setSaveStatus(label, state = 'idle') {
+    if (!saveStatus) return;
+    saveStatus.textContent = label;
+    saveStatus.dataset.state = state;
+    if (retryBtn) retryBtn.hidden = state !== 'error';
+  }
+
   async function saveNote() {
     const title = titleInput?.value.trim() || 'Untitled';
     const text = bodyInput?.value || '';
+    if (title === lastTitle && text === lastText) {
+      setSaveStatus('Saved');
+      return;
+    }
+    setSaveStatus('Saving...', 'saving');
     try {
       await invoke('update_standalone_note', { noteId, title, text });
+      lastTitle = title;
+      lastText = text;
+      setSaveStatus('Saved', 'saved');
     } catch (e) {
       console.error('Save note error:', e);
+      setSaveStatus('Save failed', 'error');
     }
   }
 
-  titleInput?.addEventListener('blur', saveNote);
-  bodyInput?.addEventListener('blur', saveNote);
-
-  // Auto-save every 8 seconds
-  let lastText = bodyInput?.value || '';
-  let lastTitle = titleInput?.value || '';
-  noteAutoSaveHandle = setInterval(() => {
-    const curText = bodyInput?.value || '';
-    const curTitle = titleInput?.value || '';
-    if (curText !== lastText || curTitle !== lastTitle) {
-      lastText = curText;
-      lastTitle = curTitle;
+  function scheduleSave() {
+    if (noteAutoSaveHandle) clearTimeout(noteAutoSaveHandle);
+    setSaveStatus('Unsaved', 'dirty');
+    noteAutoSaveHandle = setTimeout(() => {
+      noteAutoSaveHandle = null;
       saveNote();
+    }, 900);
+  }
+
+  async function flushSave() {
+    if (noteAutoSaveHandle) {
+      clearTimeout(noteAutoSaveHandle);
+      noteAutoSaveHandle = null;
     }
-  }, 8000);
+    await saveNote();
+  }
+
+  titleInput?.addEventListener('input', scheduleSave);
+  bodyInput?.addEventListener('input', scheduleSave);
+  titleInput?.addEventListener('blur', flushSave);
+  bodyInput?.addEventListener('blur', flushSave);
+  bodyInput?.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      flushSave();
+    }
+  });
+  retryBtn?.addEventListener('click', flushSave);
 
   // Folder assignment
   document.getElementById('note-folder-select')?.addEventListener('change', async (e) => {
     const folderId = e.target.value ? parseInt(e.target.value) : null;
     try {
       await invoke('assign_standalone_note_folder', { noteId, folderId });
+      setSaveStatus('Saved', 'saved');
     } catch (err) {
       showToast('Failed to update folder', 'error');
     }
@@ -271,10 +314,12 @@ async function openStandaloneNote(noteId) {
 
   // Delete
   document.getElementById('note-delete-btn')?.addEventListener('click', async () => {
+    if (!confirm('Delete this note? This cannot be undone.')) return;
     try {
       await invoke('delete_standalone_note', { noteId });
       currentNoteId = null;
       currentNoteType = null;
+      if (appState.selectedStandaloneNoteId === noteId) appState.selectedStandaloneNoteId = null;
       showToast('Note deleted', 'success');
       await renderNotesView();
     } catch (e) {

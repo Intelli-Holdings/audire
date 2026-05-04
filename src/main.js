@@ -79,6 +79,7 @@ function navigateBack() {
     viewHistoryIndex--;
     const prev = viewHistory[viewHistoryIndex];
     showView(prev);
+    updateTitlebarNavState();
   }
 }
 
@@ -87,11 +88,11 @@ function navigateForward() {
     viewHistoryIndex++;
     const next = viewHistory[viewHistoryIndex];
     showView(next);
+    updateTitlebarNavState();
   }
 }
 
 // Wrap showView to track history
-const originalShowView = showView;
 function trackedShowView(viewName) {
   // Only add to history if it's a new navigation (not back/forward)
   if (viewHistory[viewHistoryIndex] !== viewName) {
@@ -100,6 +101,14 @@ function trackedShowView(viewName) {
     viewHistory.push(viewName);
     viewHistoryIndex = viewHistory.length - 1;
   }
+  updateTitlebarNavState();
+}
+
+function updateTitlebarNavState() {
+  const backBtn = document.getElementById('nav-back-btn');
+  const forwardBtn = document.getElementById('nav-forward-btn');
+  if (backBtn) backBtn.disabled = viewHistoryIndex <= 0;
+  if (forwardBtn) forwardBtn.disabled = viewHistoryIndex >= viewHistory.length - 1;
 }
 
 // ---- Initialize ----
@@ -185,12 +194,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Quick note button — create a standalone note and navigate to notes view
   document.getElementById('quick-note-btn')
     ?.addEventListener('click', async () => {
+      const btn = document.getElementById('quick-note-btn');
+      if (btn?.disabled) return;
       try {
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Creating...';
+        }
         const note = await invoke('create_standalone_note', { title: 'Untitled' });
         AppState.selectedStandaloneNoteId = note.id;
         showView('notes');
       } catch (e) {
         showToast('Failed to create note: ' + e, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '+ Quick note';
+        }
       }
     });
 

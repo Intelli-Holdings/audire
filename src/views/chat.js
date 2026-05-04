@@ -2,6 +2,12 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
+import {
+  bindTextareaSubmit,
+  setTextareaValue,
+  setupAutosizeTextarea,
+  setupTextareaSizeControls,
+} from '../interaction.js';
 
 let appState = null;
 let chatHistory = [];
@@ -122,15 +128,25 @@ export async function renderChatView() {
           </div>
           <div class="chat-composer-bottom">
             <div class="chat-composer-meta">
+              <div class="textarea-size-toggle" id="chat-size-toggle" role="group" aria-label="Composer size">
+                <button type="button" data-textarea-size="compact" title="Compact composer">S</button>
+                <button type="button" data-textarea-size="comfortable" title="Comfortable composer">M</button>
+                <button type="button" data-textarea-size="expanded" title="Expanded composer">L</button>
+              </div>
               <button class="chat-model-pill" type="button" id="chat-model-pill" title="Manage AI providers">
                 <span class="chat-model-label">${escapeHtml(modelLabel)}</span>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
               </button>
             </div>
-            <button class="chat-send-icon" id="chat-send-btn" type="button" aria-label="Start voice input">
-              <svg class="chat-send-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-              <svg class="chat-send-mic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-            </button>
+            <div class="chat-composer-actions">
+              <span class="chat-dictation-status" id="chat-dictation-status" role="status" aria-live="polite"></span>
+              <button class="chat-icon-btn chat-mic-btn" id="chat-mic-btn" type="button" aria-label="Start voice input" title="Dictate">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+              </button>
+              <button class="chat-icon-btn chat-send-icon" id="chat-send-btn" type="button" aria-label="Send" title="Send" disabled>
+                <svg class="chat-send-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -159,13 +175,23 @@ export async function renderChatView() {
 
   const chatInput = document.getElementById('chat-view-input');
   const sendBtn = document.getElementById('chat-send-btn');
+  const micBtn = document.getElementById('chat-mic-btn');
+  const dictationStatus = document.getElementById('chat-dictation-status');
+  const sizeToggle = document.getElementById('chat-size-toggle');
+  setupAutosizeTextarea(chatInput, {
+    minRows: 1,
+    maxVh: 0.38,
+    storageKey: 'audire.chat.composerSize',
+  });
+  setupTextareaSizeControls(sizeToggle, chatInput, {
+    storageKey: 'audire.chat.composerSize',
+  });
 
-  // Toggle mic vs send icon based on whether there's text to send.
   const syncSendIcon = () => {
     if (!sendBtn) return;
     const hasText = Boolean(chatInput?.value.trim());
     sendBtn.classList.toggle('has-text', hasText);
-    sendBtn.setAttribute('aria-label', hasText ? 'Send' : 'Start voice input');
+    sendBtn.disabled = !hasText;
   };
   chatInput?.addEventListener('input', syncSendIcon);
   syncSendIcon();
@@ -182,7 +208,7 @@ export async function renderChatView() {
   container.querySelectorAll('.recipe-chip[data-recipe]').forEach(chip => {
     chip.addEventListener('click', () => {
       if (!chatInput) return;
-      chatInput.value = chip.dataset.recipe;
+      setTextareaValue(chatInput, chip.dataset.recipe, { focus: true, scrollToEnd: true });
       chatInput.focus();
       syncSendIcon();
     });
@@ -203,10 +229,14 @@ export async function renderChatView() {
   async function sendQuery() {
     const query = chatInput?.value.trim();
     if (!query) return;
-    chatInput.value = '';
+    setTextareaValue(chatInput, '', { scrollToEnd: true });
     syncSendIcon();
+    chatInput.disabled = true;
+    sendBtn.disabled = true;
 
     appendMessage('user', query);
+    const loadingMessage = appendMessage('audire', 'Thinking...');
+    loadingMessage?.classList.add('is-loading');
     chatHistory.push({ query, answer: '' });
 
     try {
@@ -227,30 +257,32 @@ export async function renderChatView() {
       });
       const answer = resp.answer || 'No response.';
       const citations = resp.citations || [];
+      loadingMessage?.remove();
       appendMessage('audire', answer, citations);
       chatHistory[chatHistory.length - 1].answer = answer;
     } catch (err) {
+      loadingMessage?.remove();
       appendMessage('audire', 'Error: ' + err);
+    } finally {
+      chatInput.disabled = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
+      syncSendIcon();
     }
   }
 
-  chatInput?.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      await sendQuery();
-    }
-  });
+  bindTextareaSubmit(chatInput, sendQuery);
 
   sendBtn?.addEventListener('click', async () => {
-    if (sendBtn.classList.contains('has-text')) {
-      await sendQuery();
-    } else {
-      await toggleVoiceInput(chatInput, sendBtn, syncSendIcon);
-    }
+    await sendQuery();
+  });
+
+  micBtn?.addEventListener('click', async () => {
+    await toggleVoiceInput(chatInput, micBtn, syncSendIcon, dictationStatus);
   });
 }
 
-async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
+async function toggleVoiceInput(chatInput, micBtn, syncSendIcon, statusEl) {
   if (isListening && recognition) {
     recognition.stop();
     return;
@@ -294,8 +326,10 @@ async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
 
   recognition.onstart = () => {
     isListening = true;
-    sendBtn?.classList.add('is-listening');
-    sendBtn?.setAttribute('aria-label', 'Stop voice input');
+    micBtn?.classList.add('is-listening');
+    micBtn?.setAttribute('aria-label', 'Stop voice input');
+    micBtn?.setAttribute('title', 'Stop dictation');
+    if (statusEl) statusEl.textContent = 'Listening';
   };
 
   recognition.onresult = (event) => {
@@ -310,7 +344,10 @@ async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
       }
     }
     if (chatInput) {
-      chatInput.value = baseline + accumulated + interim;
+      setTextareaValue(chatInput, baseline + accumulated + interim, {
+        focus: true,
+        scrollToEnd: true,
+      });
       syncSendIcon();
     }
   };
@@ -327,11 +364,11 @@ async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
     } else {
       showToast('Mic error: ' + event.error, 'error');
     }
-    stopListening(sendBtn);
+    stopListening(micBtn, statusEl);
   };
 
   recognition.onend = () => {
-    stopListening(sendBtn);
+    stopListening(micBtn, statusEl);
     syncSendIcon();
     chatInput?.focus();
   };
@@ -339,11 +376,13 @@ async function toggleVoiceInput(chatInput, sendBtn, syncSendIcon) {
   recognition.start();
 }
 
-function stopListening(sendBtn) {
+function stopListening(micBtn, statusEl) {
   isListening = false;
   recognition = null;
-  sendBtn?.classList.remove('is-listening');
-  sendBtn?.setAttribute('aria-label', 'Start voice input');
+  micBtn?.classList.remove('is-listening');
+  micBtn?.setAttribute('aria-label', 'Start voice input');
+  micBtn?.setAttribute('title', 'Dictate');
+  if (statusEl) statusEl.textContent = '';
 }
 
 function setupScopePicker() {
@@ -403,7 +442,7 @@ function setupScopePicker() {
 
 function appendMessage(role, text, citations = []) {
   const container = document.getElementById('chat-view-messages');
-  if (!container) return;
+  if (!container) return null;
   const msg = document.createElement('div');
   msg.className = 'chat-message';
   msg.dataset.role = role;
@@ -452,4 +491,5 @@ function appendMessage(role, text, citations = []) {
 
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
+  return msg;
 }

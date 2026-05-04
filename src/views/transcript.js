@@ -4,6 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { showToast } from '../toast.js';
+import { bindTextareaSubmit, setTextareaValue, setupAutosizeTextarea } from '../interaction.js';
 
 let appState = null;
 let onCaptureStop = null;
@@ -14,6 +15,8 @@ let currentMeeting = null;
 let meetingUserNotes = [];
 let showingMeetingDetail = false;
 let llmProviders = [];
+let foldersCache = [];
+let savedUserNotesText = '';
 
 function escapeHtml(str) {
   const d = document.createElement('div');
@@ -155,16 +158,19 @@ async function renderMeetingDetail() {
 
   if (appState.meetingId && !appState.isCapturing) {
     try {
-      const [detail, participants, providers] = await Promise.all([
+      const [detail, participants, providers, folders] = await Promise.all([
         invoke('get_meeting_detail', { meetingId: appState.meetingId }),
         invoke('list_participants', { meetingId: appState.meetingId }),
         invoke('list_llm_providers').catch(() => []),
+        invoke('list_folders').catch(() => []),
       ]);
       currentMeeting = detail.meeting;
       meetingSegments = detail.segments || [];
       meetingUserNotes = detail.user_notes || [];
       currentStructuredNote = detail.structured_note || null;
       llmProviders = providers || [];
+      foldersCache = folders || [];
+      appState.foldersCache = foldersCache;
     } catch (e) {
       console.error('Meeting detail load error:', e);
     }
@@ -179,6 +185,16 @@ async function renderMeetingDetail() {
     : 'Now';
 
   const userNotesText = meetingUserNotes.map(n => n.text).join('\n\n');
+  savedUserNotesText = userNotesText;
+  const folderOptions = foldersCache.map(f =>
+    `<option value="${f.id}" ${currentMeeting?.folder_id === f.id ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
+  ).join('');
+  const folderControlHtml = foldersCache.length > 0
+    ? `<select class="note-editor-folder-select" id="meeting-folder-select" aria-label="Folder">
+        <option value="">No folder</option>
+        ${folderOptions}
+      </select>`
+    : '';
 
   // Build floating transcript card content
   let transcriptCardHtml = '';
@@ -332,7 +348,7 @@ async function renderMeetingDetail() {
       <div style="width:100%;max-width:680px;padding:var(--space-8) var(--space-6);flex:1;">
         <!-- Title -->
         <input class="meeting-title-input" id="session-title" value="${escapeHtml(title)}" placeholder="Untitled session"
-          style="font-family:var(--font-display);font-size:var(--text-h1);font-weight:var(--weight-normal);margin-bottom:var(--space-3);" />
+          style="margin-bottom:var(--space-3);" />
 
         <!-- Meta chips -->
         <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;">
@@ -344,10 +360,10 @@ async function renderMeetingDetail() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             Me
           </span>
-          <button class="badge-subtle" id="add-to-folder-chip" style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          ${folderControlHtml ? `<span class="badge-subtle" style="display:flex;align-items:center;gap:4px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            Add to folder
-          </button>
+            ${folderControlHtml}
+          </span>` : ''}
         </div>
 
         ${tabBarHtml}
@@ -395,7 +411,7 @@ async function renderMeetingDetail() {
           ? '<span class="capture-dot" aria-hidden="true"></span> Stop recording'
           : ((meetingSegments.length || appState.finals.length) ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume recording' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg> Start recording')}
       </button>
-      <input type="text" class="ask-input" id="transcript-ask-input" placeholder="Ask anything" style="flex:1;" />
+      <textarea class="ask-input prompt-textarea" id="transcript-ask-input" placeholder="Ask anything" rows="1" style="flex:1;"></textarea>
       <button class="recipe-shortcut-btn" id="transcript-recipe-btn">/ List recent todos</button>
     </div>
   `;
@@ -698,6 +714,18 @@ function bindMeetingDetailEvents() {
   //   "idle"      → Start recording
   //   "recording" → Stop
   //   "paused"    → Resume (start a new capture run on the same meeting context)
+  document.getElementById('meeting-folder-select')?.addEventListener('change', async (e) => {
+    if (!appState.meetingId) return;
+    const folderId = e.target.value ? Number(e.target.value) : null;
+    try {
+      await invoke('assign_meeting_folder', { meetingId: appState.meetingId, folderId });
+      if (currentMeeting) currentMeeting.folder_id = folderId;
+      showToast(folderId ? 'Added to folder' : 'Removed from folder', 'success');
+    } catch (err) {
+      showToast('Failed to update folder', 'error');
+    }
+  });
+
   document.getElementById('capture-resume-btn')?.addEventListener('click', async () => {
     const btn = document.getElementById('capture-resume-btn');
     const state = btn?.dataset.captureState || (appState.isCapturing ? 'recording' : 'idle');
@@ -758,19 +786,31 @@ function bindMeetingDetailEvents() {
     }
   });
 
+  const userNotesInput = document.getElementById('user-notes-input');
+  setupAutosizeTextarea(userNotesInput, { minRows: 12, maxVh: 0.62 });
+
   // Save user notes on blur
-  document.getElementById('user-notes-input')?.addEventListener('blur', async () => {
-    const text = document.getElementById('user-notes-input')?.value.trim();
-    if (!appState.meetingId || !text) return;
+  userNotesInput?.addEventListener('blur', async () => {
+    const text = userNotesInput.value.trim();
+    if (!appState.meetingId || !text || text === savedUserNotesText.trim()) return;
+    const noteToAppend = text.startsWith(savedUserNotesText)
+      ? text.slice(savedUserNotesText.length).trim()
+      : text;
+    if (!noteToAppend) return;
     try {
-      await invoke('append_note', { meetingId: appState.meetingId, text });
+      await invoke('append_note', { meetingId: appState.meetingId, text: noteToAppend });
+      savedUserNotesText = text;
+      showToast('Note saved', 'success');
     } catch (e) {
       console.error('Append note error:', e);
     }
   });
 
+  const structuredSummaryInput = document.getElementById('structured-summary-input');
+  setupAutosizeTextarea(structuredSummaryInput, { minRows: 4, maxVh: 0.4 });
+
   // Structured note summary editing
-  document.getElementById('structured-summary-input')?.addEventListener('blur', async (e) => {
+  structuredSummaryInput?.addEventListener('blur', async (e) => {
     if (!appState.meetingId || !currentStructuredNote) return;
     const summary = e.target.value.trim();
     try {
@@ -810,57 +850,61 @@ function bindMeetingDetailEvents() {
 
   // Ask input in bottom bar
   const askInput = document.getElementById('transcript-ask-input');
-  askInput?.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const msg = askInput.value.trim();
-      if (!msg) return;
-      askInput.value = '';
+  setupAutosizeTextarea(askInput, { minRows: 1, maxVh: 0.28 });
+  bindTextareaSubmit(askInput, async () => {
+    const msg = askInput.value.trim();
+    if (!msg) return;
+    setTextareaValue(askInput, '', { scrollToEnd: true });
+    askInput.disabled = true;
 
-      // Check if it's a recipe command
-      const recipeMatch = msg.match(/^\/(\w+)/);
-      if (recipeMatch && appState.meetingId) {
-        try {
-          const resp = await invoke('run_recipe', {
-            meetingId: appState.meetingId,
-            recipeId: recipeMatch[1].toLowerCase(),
-          });
-          showToast(resp.text?.slice(0, 100) || 'Done', 'success');
-        } catch (err) {
-          showToast('Error: ' + err, 'error');
-        }
-        return;
-      }
-
-      // Otherwise use ask_audire
+    // Check if it's a recipe command
+    const recipeMatch = msg.match(/^\/(\w+)/);
+    if (recipeMatch && appState.meetingId) {
       try {
-        let hasLlm = false;
-        try {
-          const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
-          const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
-          const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
-          hasLlm = hasAnthropic || hasOpenai || hasGemini;
-        } catch { /* ignore */ }
-
-        const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
-        const resp = await invoke(command, {
-          query: msg,
-          scope: 'all',
-          meetingId: appState.meetingId || null,
-          folderId: null,
+        const resp = await invoke('run_recipe', {
+          meetingId: appState.meetingId,
+          recipeId: recipeMatch[1].toLowerCase(),
         });
-        showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
+        showToast(resp.text?.slice(0, 100) || 'Done', 'success');
       } catch (err) {
         showToast('Error: ' + err, 'error');
+      } finally {
+        askInput.disabled = false;
+        askInput.focus();
       }
+      return;
+    }
+
+    // Otherwise use ask_audire
+    try {
+      let hasLlm = false;
+      try {
+        const hasAnthropic = await invoke('has_api_key', { provider: 'anthropic' });
+        const hasOpenai = await invoke('has_api_key', { provider: 'openai' });
+        const hasGemini = await invoke('has_api_key', { provider: 'gemini' });
+        hasLlm = hasAnthropic || hasOpenai || hasGemini;
+      } catch { /* ignore */ }
+
+      const command = hasLlm ? 'ask_audire_llm' : 'ask_audire';
+      const resp = await invoke(command, {
+        query: msg,
+        scope: 'all',
+        meetingId: appState.meetingId || null,
+        folderId: null,
+      });
+      showToast(resp.answer?.slice(0, 100) || 'Done', 'success');
+    } catch (err) {
+      showToast('Error: ' + err, 'error');
+    } finally {
+      askInput.disabled = false;
+      askInput.focus();
     }
   });
 
   // Recipe shortcut — uses the canonical recipe ID from src-tauri/src/llm/recipe.rs.
   document.getElementById('transcript-recipe-btn')?.addEventListener('click', () => {
     if (askInput) {
-      askInput.value = '/recent_todos';
-      askInput.focus();
+      setTextareaValue(askInput, '/recent_todos', { focus: true, scrollToEnd: true });
     }
   });
 

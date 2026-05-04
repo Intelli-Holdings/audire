@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from './toast.js';
 import { setSettingsSection } from './views/settings.js';
+import { setTextareaValue, setupAutosizeTextarea, trapDialogFocus } from './interaction.js';
 
 let appState = null;
 let onViewChange = null;
@@ -18,11 +19,28 @@ export function initSidebar(state, viewChangeCallback) {
 
 export function showView(viewName) {
   // Update nav items
-  document.querySelectorAll('.nav-item').forEach(i =>
-    i.classList.toggle('active', i.dataset.view === viewName));
+  document.querySelectorAll('.nav-item').forEach(i => {
+    const active = i.dataset.view === viewName
+      && !(viewName === 'mynotes' && appState.selectedFolderId && i.dataset.view === 'mynotes');
+    i.classList.toggle('active', active);
+    if (active) {
+      i.setAttribute('aria-current', 'page');
+    } else {
+      i.removeAttribute('aria-current');
+    }
+  });
   // Update folder items
-  document.querySelectorAll('.sidebar-folder-item').forEach(i =>
-    i.classList.toggle('active', i.dataset.view === viewName));
+  document.querySelectorAll('.sidebar-folder-item').forEach(i => {
+    const active = viewName === 'mynotes'
+      && i.dataset.folderId
+      && Number(i.dataset.folderId) === appState.selectedFolderId;
+    i.classList.toggle('active', active);
+    if (active) {
+      i.setAttribute('aria-current', 'page');
+    } else {
+      i.removeAttribute('aria-current');
+    }
+  });
   // Update views
   document.querySelectorAll('.view').forEach(v =>
     v.classList.toggle('active', v.id === `view-${viewName}`));
@@ -127,10 +145,14 @@ export async function stopCapture() {
 
 function initNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => showView(item.dataset.view));
+    item.addEventListener('click', () => {
+      if (item.dataset.view === 'mynotes') appState.selectedFolderId = null;
+      showView(item.dataset.view);
+    });
     item.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
+        if (item.dataset.view === 'mynotes') appState.selectedFolderId = null;
         showView(item.dataset.view);
       }
     });
@@ -175,12 +197,12 @@ async function loadFolders() {
     appState.foldersCache = folders;
 
     listEl.innerHTML = folders.map(f => `
-      <a class="sidebar-folder-item" data-view="folder-${f.id}" data-folder-id="${f.id}" role="button" tabindex="0">
+      <button class="sidebar-folder-item" data-view="folder-${f.id}" data-folder-id="${f.id}" type="button" aria-label="Open folder ${escapeHtml(f.name)}">
         <svg class="sidebar-folder-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
         <span class="truncate">${escapeHtml(f.name)}</span>
-      </a>
+      </button>
     `).join('');
 
     // Bind folder clicks — navigate to mynotes with folder filter
@@ -201,43 +223,75 @@ function initFolderModal() {
   const cancelBtn = document.getElementById('folder-cancel-btn');
   const createBtn = document.getElementById('folder-create-btn');
   const nameInput = document.getElementById('folder-name-input');
+  const descInput = document.getElementById('folder-desc-input');
+  let restoreFocusTo = null;
+  let releaseFocusTrap = null;
 
   if (!modal || !addBtn) return;
+  setupAutosizeTextarea(descInput, { minRows: 3, maxVh: 0.28 });
 
-  addBtn.addEventListener('click', () => {
-    modal.style.display = 'flex';
-    nameInput?.focus();
-  });
-
-  cancelBtn?.addEventListener('click', () => {
-    modal.style.display = 'none';
+  const resetFields = () => {
     if (nameInput) nameInput.value = '';
-    const descInput = document.getElementById('folder-desc-input');
-    if (descInput) descInput.value = '';
-  });
+    if (descInput) setTextareaValue(descInput, '');
+    if (createBtn) createBtn.disabled = true;
+  };
+
+  const openModal = () => {
+    restoreFocusTo = document.activeElement;
+    modal.style.display = 'flex';
+    modal.removeAttribute('aria-hidden');
+    releaseFocusTrap = trapDialogFocus(modal, {
+      initialFocus: nameInput,
+      restoreFocusTo,
+      restoreFocus: false,
+      onEscape: closeModal,
+    });
+  };
+
+  const closeModal = () => {
+    releaseFocusTrap?.();
+    releaseFocusTrap = null;
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    resetFields();
+    if (restoreFocusTo && typeof restoreFocusTo.focus === 'function') {
+      restoreFocusTo.focus();
+    }
+    restoreFocusTo = null;
+  };
+
+  addBtn.addEventListener('click', openModal);
+
+  cancelBtn?.addEventListener('click', closeModal);
 
   // Close on overlay click
   modal.addEventListener('click', (e) => {
     if (e.target === modal) {
-      modal.style.display = 'none';
+      closeModal();
     }
+  });
+
+  nameInput?.addEventListener('input', () => {
+    if (createBtn) createBtn.disabled = !nameInput.value.trim();
   });
 
   createBtn?.addEventListener('click', async () => {
     const name = nameInput?.value.trim();
     if (!name) return;
-    const desc = document.getElementById('folder-desc-input')?.value.trim() || null;
+    const desc = descInput?.value.trim() || null;
 
     try {
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating...';
       await invoke('create_folder', { name, kind: 'private', color: null, description: desc });
       showToast('Folder created', 'success');
-      modal.style.display = 'none';
-      nameInput.value = '';
-      const descInput = document.getElementById('folder-desc-input');
-      if (descInput) descInput.value = '';
+      closeModal();
       await loadFolders();
     } catch (e) {
       showToast('Failed to create folder: ' + e, 'error');
+    } finally {
+      createBtn.textContent = 'Create';
+      createBtn.disabled = !nameInput?.value.trim();
     }
   });
 
