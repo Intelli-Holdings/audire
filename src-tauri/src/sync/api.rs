@@ -8,7 +8,6 @@
 //! IPC layer is responsible for prompting the user for their
 //! passphrase if the KEK isn't in `SyncRuntime`.
 
-use anyhow::{anyhow, Context};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 

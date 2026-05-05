@@ -1,6 +1,7 @@
 // Settings view — two-column layout with sidebar nav
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { showToast } from '../toast.js';
 import { trapDialogFocus } from '../interaction.js';
 
@@ -703,7 +704,6 @@ async function renderAccountSection(panel) {
 
   // Subscribe to live sync events to update the status pill.
   try {
-    const { listen } = await import('@tauri-apps/api/event');
     if (!window.__audireSyncListenerInstalled) {
       window.__audireSyncListenerInstalled = true;
       listen('audire://sync_status', (ev) => {
