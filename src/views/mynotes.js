@@ -92,7 +92,7 @@ export async function renderMyNotesView() {
       id: m.id,
       title: m.title || 'Meeting notes',
       ts: m.started_at,
-      meta: `${m.note_count || 0} note${m.note_count === 1 ? '' : 's'}`,
+      meta: m.note_preview || `${m.note_count || 0} note${m.note_count === 1 ? '' : 's'}`,
     });
   }
 
@@ -172,11 +172,13 @@ export async function renderMyNotesView() {
       const type = el.dataset.noteType;
       const id = el.dataset.noteId;
       if (type === 'meeting') {
-        appState.meetingId = id;
-        if (onNavigateToTranscript) onNavigateToTranscript();
+        appState.selectedMeetingNoteId = id;
+        appState.selectedStandaloneNoteId = null;
+        showView('notes');
       } else if (type === 'standalone') {
         // Navigate to notes view with this note selected
         appState.selectedStandaloneNoteId = parseInt(id);
+        appState.selectedMeetingNoteId = null;
         showView('notes');
       }
     });

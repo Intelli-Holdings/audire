@@ -20,6 +20,7 @@ let searchQuery = '';
 const ICON = {
   search:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`,
   newNote:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L13 14l-4 1 1-4z"/></svg>`,
+  edit:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`,
   folder:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
   notes:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`,
   meeting:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>`,
@@ -102,6 +103,8 @@ export async function renderNotesView() {
 
   if (appState.selectedFolderId) {
     currentScope = { kind: 'folder', id: appState.selectedFolderId };
+  } else if (currentScope.kind === 'folder') {
+    currentScope = { kind: 'all' };
   }
 
   container.innerHTML = `
@@ -138,8 +141,13 @@ export async function renderNotesView() {
   if (currentNoteId && currentNoteType === 'standalone' &&
       standaloneNotes.some(n => n.id === currentNoteId)) {
     await openStandaloneNote(currentNoteId);
+  } else if (currentNoteId && currentNoteType === 'meeting' &&
+      meetingNotes.some(m => String(m.id) === String(currentNoteId))) {
+    await openMeetingNote(String(currentNoteId));
   } else if (appState.selectedStandaloneNoteId) {
     await openStandaloneNote(Number(appState.selectedStandaloneNoteId));
+  } else if (appState.selectedMeetingNoteId) {
+    await openMeetingNote(String(appState.selectedMeetingNoteId));
   } else {
     renderEditorEmpty();
   }
@@ -191,7 +199,7 @@ function getVisibleItems() {
       _kind: 'meeting',
       id: m.id,
       title: m.title || 'Meeting notes',
-      preview: `${m.note_count || 0} note${m.note_count === 1 ? '' : 's'} from this meeting`,
+      preview: m.note_preview || `${m.note_count || 0} note${m.note_count === 1 ? '' : 's'} from this meeting`,
       ts: m.started_at,
       folder_id: m.folder_id ?? null,
     });
@@ -349,8 +357,7 @@ function renderNotesList() {
       if (kind === 'standalone') {
         await openStandaloneNote(parseInt(id, 10));
       } else {
-        appState.meetingId = id;
-        if (onNavigateToTranscript) onNavigateToTranscript();
+        await openMeetingNote(String(id));
       }
     });
   });
@@ -386,6 +393,7 @@ async function openStandaloneNote(noteId) {
   currentNoteId = noteId;
   currentNoteType = 'standalone';
   appState.selectedStandaloneNoteId = noteId;
+  appState.selectedMeetingNoteId = null;
 
   // refresh active state in list
   document.querySelectorAll('.notes-app__list-card').forEach((c) => {
@@ -403,7 +411,9 @@ async function openStandaloneNote(noteId) {
 
   editor.innerHTML = `
     <div class="notes-app__editor-toolbar">
-      <div class="notes-app__editor-tools" aria-hidden="true"></div>
+      <div class="notes-app__editor-tools" role="toolbar" aria-label="Note mode">
+        <button class="notes-app__tool-btn" id="notes-edit-btn" type="button" title="Edit note" aria-label="Edit note">${ICON.edit}</button>
+      </div>
       <div class="notes-app__editor-tools notes-app__editor-tools--center" role="toolbar" aria-label="Formatting">
         <button class="notes-app__tool-btn" data-fmt="heading" type="button" title="Heading" aria-label="Cycle heading style">${ICON.heading}</button>
         <button class="notes-app__tool-btn" data-fmt="checklist" type="button" title="Checklist" aria-label="Toggle checklist">${ICON.checklist}</button>
@@ -517,6 +527,7 @@ async function openStandaloneNote(noteId) {
     }
   });
   retryBtn?.addEventListener('click', flush);
+  document.getElementById('notes-edit-btn')?.addEventListener('click', () => bodyInput?.focus());
 
   document.getElementById('notes-folder-select')?.addEventListener('change', async (e) => {
     const folderId = e.target.value ? parseInt(e.target.value, 10) : null;
@@ -544,6 +555,7 @@ async function openStandaloneNote(noteId) {
       showToast('Note duplicated', 'success');
       currentNoteId = copy.id;
       appState.selectedStandaloneNoteId = copy.id;
+      appState.selectedMeetingNoteId = null;
       await renderNotesView();
     } catch (e) {
       showToast('Failed to duplicate: ' + e, 'error');
@@ -571,6 +583,7 @@ async function openStandaloneNote(noteId) {
       currentNoteId = null;
       currentNoteType = null;
       if (appState.selectedStandaloneNoteId === noteId) appState.selectedStandaloneNoteId = null;
+      appState.selectedMeetingNoteId = null;
       showToast('Note deleted', 'success');
       await renderNotesView();
     } catch (e) {
@@ -579,6 +592,268 @@ async function openStandaloneNote(noteId) {
   });
 
   // Formatting toolbar
+  editor.querySelectorAll('[data-fmt]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const fmt = btn.dataset.fmt;
+      if (fmt === 'heading') cycleHeading(bodyInput);
+      else if (fmt === 'checklist') toggleLinePrefix(bodyInput, '- [ ] ', /^- \[[x ]\] /i);
+      else if (fmt === 'bullet') toggleLinePrefix(bodyInput, '- ', /^- (?!\[)/);
+      else if (fmt === 'numbered') toggleNumbered(bodyInput);
+      bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  });
+}
+
+function structuredNoteToMarkdown(note) {
+  if (!note) return '';
+  const lines = [];
+  if (note.summary?.trim()) {
+    lines.push('## Summary');
+    lines.push(note.summary.trim());
+    lines.push('');
+  }
+  for (const section of note.sections || []) {
+    lines.push(`## ${section.label || section.kind || 'Notes'}`);
+    if (section.items?.length) {
+      for (const item of section.items) {
+        if (item.text?.trim()) lines.push(`- ${item.text.trim()}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
+function transcriptToMarkdown(segments = []) {
+  if (!segments.length) return '';
+  return segments
+    .slice()
+    .sort((a, b) => a.ts_ms - b.ts_ms)
+    .map(seg => {
+      const source = seg.source === 'MIC' ? 'You' : 'Speaker';
+      return `[${formatShortTime(seg.ts_ms)}] ${source}: ${seg.text}`;
+    })
+    .join('\n');
+}
+
+function getMeetingEditorText(detail) {
+  const userText = (detail.user_notes || []).map(n => n.text).join('\n\n').trim();
+  if (userText) return userText;
+
+  const structuredText = structuredNoteToMarkdown(detail.structured_note);
+  if (structuredText) return structuredText;
+
+  return transcriptToMarkdown(detail.segments || []);
+}
+
+function formatShortTime(tsMs) {
+  const d = new Date(tsMs);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function openMeetingNote(meetingId) {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+
+  let detail;
+  try {
+    detail = await invoke('get_meeting_detail', { meetingId });
+  } catch (e) {
+    showToast('Failed to load meeting note', 'error');
+    return;
+  }
+
+  const meeting = detail.meeting;
+  currentNoteId = meetingId;
+  currentNoteType = 'meeting';
+  appState.selectedMeetingNoteId = meetingId;
+  appState.selectedStandaloneNoteId = null;
+  if (!appState.isCapturing) appState.meetingId = meetingId;
+
+  document.querySelectorAll('.notes-app__list-card').forEach((c) => {
+    const match = c.dataset.noteKind === 'meeting' &&
+      String(c.dataset.noteId) === String(meetingId);
+    c.classList.toggle('is-active', match);
+  });
+
+  const editor = document.getElementById('notes-editor');
+  if (!editor) return;
+
+  const folderOptions = folders.map(f =>
+    `<option value="${f.id}" ${meeting.folder_id === f.id ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
+  ).join('');
+  const title = meeting.title || 'Meeting Notes';
+  const bodyText = getMeetingEditorText(detail);
+
+  editor.innerHTML = `
+    <div class="notes-app__editor-toolbar">
+      <div class="notes-app__editor-tools" role="toolbar" aria-label="Meeting note mode">
+        <button class="notes-app__tool-btn" id="notes-edit-btn" type="button" title="Edit note" aria-label="Edit note">${ICON.edit}</button>
+      </div>
+      <div class="notes-app__editor-tools notes-app__editor-tools--center" role="toolbar" aria-label="Formatting">
+        <button class="notes-app__tool-btn" data-fmt="heading" type="button" title="Heading" aria-label="Cycle heading style">${ICON.heading}</button>
+        <button class="notes-app__tool-btn" data-fmt="checklist" type="button" title="Checklist" aria-label="Toggle checklist">${ICON.checklist}</button>
+        <button class="notes-app__tool-btn" data-fmt="bullet" type="button" title="Bullet list" aria-label="Toggle bullet list">${ICON.bullet}</button>
+        <button class="notes-app__tool-btn" data-fmt="numbered" type="button" title="Numbered list" aria-label="Toggle numbered list">${ICON.numbered}</button>
+      </div>
+      <div class="notes-app__editor-tools notes-app__editor-tools--end" role="toolbar" aria-label="Meeting note actions">
+        <select class="notes-app__editor-folder" id="meeting-notes-folder-select" aria-label="Folder">
+          <option value="">No folder</option>
+          ${folderOptions}
+        </select>
+        <button class="notes-app__tool-btn" id="meeting-open-transcript-btn" type="button" title="Open transcript" aria-label="Open transcript">${ICON.meeting}</button>
+        <button class="notes-app__tool-btn" id="meeting-export-btn" type="button" title="Export meeting" aria-label="Export meeting">${ICON.share}</button>
+        <button class="notes-app__tool-btn notes-app__tool-btn--danger" id="meeting-delete-btn" type="button" title="Delete" aria-label="Delete meeting note">${ICON.trash}</button>
+      </div>
+    </div>
+    <div class="notes-app__editor-scroll">
+      <div class="notes-app__editor-content">
+        <div class="notes-app__editor-date">${escapeHtml(dateLabelForEditor(meeting.started_at))}</div>
+        <input
+          class="notes-app__editor-title-input"
+          id="meeting-title-input"
+          value="${escapeHtml(title)}"
+          placeholder="Meeting title"
+          spellcheck="true"
+        />
+        <textarea
+          class="notes-app__editor-body"
+          id="meeting-notes-body-input"
+          placeholder="Write your notes here..."
+          spellcheck="true"
+        >${escapeHtml(bodyText)}</textarea>
+        <div class="notes-app__editor-status">
+          <span id="meeting-save-status" data-state="idle">Saved</span>
+          <button class="notes-app__editor-retry" id="meeting-save-retry" type="button" hidden>Retry</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const titleInput = document.getElementById('meeting-title-input');
+  const bodyInput = document.getElementById('meeting-notes-body-input');
+  const saveStatus = document.getElementById('meeting-save-status');
+  const retryBtn = document.getElementById('meeting-save-retry');
+  setupAutosizeTextarea(bodyInput, { minRows: 16, maxVh: 0.8 });
+
+  bodyInput?.focus();
+  bodyInput?.setSelectionRange(bodyInput.value.length, bodyInput.value.length);
+
+  let lastTitle = titleInput.value.trim() || 'Meeting Notes';
+  let lastBody = bodyInput.value;
+
+  function setStatus(label, state = 'idle') {
+    if (saveStatus) {
+      saveStatus.textContent = label;
+      saveStatus.dataset.state = state;
+    }
+    if (retryBtn) retryBtn.hidden = state !== 'error';
+  }
+
+  async function save() {
+    const nextTitle = titleInput.value.trim() || 'Meeting Notes';
+    const nextBody = bodyInput.value;
+    if (nextTitle === lastTitle && nextBody === lastBody) {
+      setStatus('Saved', 'saved');
+      return;
+    }
+
+    setStatus('Saving...', 'saving');
+    try {
+      if (nextTitle !== lastTitle) {
+        await invoke('update_meeting_title', { meetingId, title: nextTitle });
+      }
+      if (nextBody !== lastBody) {
+        await invoke('replace_meeting_notes', { meetingId, text: nextBody });
+      }
+      lastTitle = nextTitle;
+      lastBody = nextBody;
+      const local = meetingNotes.find(m => String(m.id) === String(meetingId));
+      if (local) {
+        local.title = nextTitle;
+        local.note_preview = nextBody.slice(0, 140);
+        local.note_count = nextBody.trim() ? 1 : 0;
+      }
+      setStatus('Saved', 'saved');
+      renderNotesList();
+    } catch (e) {
+      console.error('Save meeting note error:', e);
+      setStatus('Save failed', 'error');
+    }
+  }
+
+  function schedule() {
+    if (saveTimer) clearTimeout(saveTimer);
+    setStatus('Editing', 'dirty');
+    saveTimer = setTimeout(() => { saveTimer = null; save(); }, 700);
+  }
+
+  async function flush() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    await save();
+  }
+
+  titleInput.addEventListener('input', schedule);
+  bodyInput.addEventListener('input', schedule);
+  titleInput.addEventListener('blur', flush);
+  bodyInput.addEventListener('blur', flush);
+  bodyInput.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      flush();
+    }
+  });
+  retryBtn?.addEventListener('click', flush);
+  document.getElementById('notes-edit-btn')?.addEventListener('click', () => bodyInput?.focus());
+
+  document.getElementById('meeting-notes-folder-select')?.addEventListener('change', async (e) => {
+    const folderId = e.target.value ? parseInt(e.target.value, 10) : null;
+    try {
+      await invoke('assign_meeting_folder', { meetingId, folderId });
+      const local = meetingNotes.find(m => String(m.id) === String(meetingId));
+      if (local) local.folder_id = folderId;
+      setStatus('Saved', 'saved');
+      renderFolderPane();
+      renderNotesList();
+    } catch {
+      showToast('Failed to update folder', 'error');
+    }
+  });
+
+  document.getElementById('meeting-open-transcript-btn')?.addEventListener('click', async () => {
+    await flush();
+    appState.meetingId = meetingId;
+    if (onNavigateToTranscript) onNavigateToTranscript();
+  });
+
+  document.getElementById('meeting-export-btn')?.addEventListener('click', async () => {
+    await flush();
+    try {
+      const resp = await invoke('export', { meetingId, format: 'md' });
+      showToast(resp?.path ? `Exported to ${resp.path}` : 'Meeting exported', 'success');
+    } catch (e) {
+      showToast('Failed to export meeting', 'error');
+    }
+  });
+
+  document.getElementById('meeting-delete-btn')?.addEventListener('click', async () => {
+    if (appState.isCapturing && String(appState.meetingId) === String(meetingId)) {
+      showToast('Stop recording before deleting this meeting note.', 'warning');
+      return;
+    }
+    if (!confirm('Delete this meeting note and its transcript? This cannot be undone.')) return;
+    try {
+      await invoke('delete_meeting', { meetingId });
+      currentNoteId = null;
+      currentNoteType = null;
+      appState.selectedMeetingNoteId = null;
+      if (String(appState.meetingId) === String(meetingId)) appState.meetingId = null;
+      showToast('Meeting note deleted', 'success');
+      await renderNotesView();
+    } catch (e) {
+      showToast('Failed to delete meeting note: ' + e, 'error');
+    }
+  });
+
   editor.querySelectorAll('[data-fmt]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const fmt = btn.dataset.fmt;
@@ -602,6 +877,7 @@ async function createNewNote() {
     currentNoteId = note.id;
     currentNoteType = 'standalone';
     appState.selectedStandaloneNoteId = note.id;
+    appState.selectedMeetingNoteId = null;
     await renderNotesView();
   } catch (e) {
     showToast('Failed to create note: ' + e, 'error');

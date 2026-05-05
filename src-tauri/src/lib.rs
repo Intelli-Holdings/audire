@@ -35,6 +35,8 @@ pub fn run() {
             ipc::start_capture,
             ipc::stop_capture,
             ipc::append_note,
+            ipc::replace_meeting_notes,
+            ipc::delete_meeting,
             ipc::run_recipe,
             ipc::export,
             ipc::list_calendar_statuses,

@@ -2,7 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '../toast.js';
-import { startCapture } from '../sidebar.js';
+import { showView, startCapture } from '../sidebar.js';
 import { bindTextareaSubmit, setTextareaValue, setupAutosizeTextarea } from '../interaction.js';
 
 let appState = null;
@@ -301,8 +301,10 @@ export async function renderHomeView() {
   // ── Bind events ────────────────────────────────────────────
   container.querySelectorAll('[data-mid]').forEach(el => {
     el.addEventListener('click', () => {
-      appState.meetingId = el.dataset.mid;
-      if (onNavigateToTranscript) onNavigateToTranscript();
+      appState.selectedMeetingNoteId = el.dataset.mid;
+      appState.selectedStandaloneNoteId = null;
+      appState.selectedFolderId = null;
+      showView('notes');
     });
   });
 

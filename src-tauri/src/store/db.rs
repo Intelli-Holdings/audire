@@ -193,6 +193,63 @@ impl LocalStore {
         Ok(())
     }
 
+    pub fn replace_meeting_notes(&self, meeting_id: &str, text: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        let mut conn = self.conn()?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM notes WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        if !text.trim().is_empty() {
+            tx.execute(
+                "INSERT INTO notes(meeting_id, ts_ms, text) VALUES (?1, ?2, ?3)",
+                params![meeting_id, now, text],
+            )
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn delete_meeting(&self, meeting_id: &str) -> Result<()> {
+        let mut conn = self.conn()?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+
+        tx.execute(
+            "DELETE FROM meeting_note_item_citations
+             WHERE note_item_id IN (
+                SELECT id FROM meeting_note_items WHERE meeting_id=?1
+             )",
+            params![meeting_id],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM detection_calendar_prompts WHERE meeting_id=?1",
+            params![meeting_id],
+        )
+        .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM meeting_note_items WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM meeting_structured_notes WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM export_cache WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM notes WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM segments WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM meeting_participants WHERE meeting_id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM meetings WHERE id=?1", params![meeting_id])
+            .map_err(|e| ParaError::Db(e.to_string()))?;
+
+        tx.commit().map_err(|e| ParaError::Db(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn segments_for_meeting(&self, meeting_id: &str) -> Result<Vec<SegmentRow>> {
         let conn = self.conn()?;
         let mut stmt = conn

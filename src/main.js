@@ -32,6 +32,7 @@ const AppState = {
   selectedProvider: 'assemblyai',
   selectedFolderId: null,
   selectedStandaloneNoteId: null,
+  selectedMeetingNoteId: null,
 };
 
 // Expose toast globally for convenience
@@ -203,6 +204,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         const note = await invoke('create_standalone_note', { title: 'Untitled' });
         AppState.selectedStandaloneNoteId = note.id;
+        AppState.selectedMeetingNoteId = null;
         showView('notes');
       } catch (e) {
         showToast('Failed to create note: ' + e, 'error');
@@ -213,31 +215,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     });
-
-  // Window controls (Tauri custom titlebar)
-  document.getElementById('win-minimize')?.addEventListener('click', async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      getCurrentWindow().minimize();
-    } catch { /* ignore in dev */ }
-  });
-  document.getElementById('win-maximize')?.addEventListener('click', async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const win = getCurrentWindow();
-      if (await win.isMaximized()) {
-        win.unmaximize();
-      } else {
-        win.maximize();
-      }
-    } catch { /* ignore in dev */ }
-  });
-  document.getElementById('win-close')?.addEventListener('click', async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      getCurrentWindow().close();
-    } catch { /* ignore in dev */ }
-  });
 
   // Auto-select best available ASR provider
   await autoSelectProvider();

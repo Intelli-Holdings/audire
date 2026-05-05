@@ -230,26 +230,6 @@ a { color: inherit; text-decoration: none; }
   background: var(--color-surface-2);
   color: var(--color-text-muted);
 }
-.window-controls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: var(--space-2);
-}
-.window-ctrl-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  font-size: 14px;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.window-ctrl-btn:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
-.window-ctrl-btn.close:hover { background: #EF4444; color: #fff; }
-
 /* ===================================================================
    SIDEBAR
    =================================================================== */
@@ -2032,7 +2012,7 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
   background: var(--notes-canvas-bg);
   color: var(--notes-text-primary);
-  font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 /* --- Folders pane --- */
@@ -2208,7 +2188,7 @@ a { color: inherit; text-decoration: none; }
   font-weight: var(--weight-semibold);
   color: var(--notes-text-primary);
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 .notes-app__list-count {
   font-size: 11px;
@@ -2403,7 +2383,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 26px;
   font-weight: var(--weight-semibold);
   line-height: 1.2;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   color: var(--notes-text-primary);
   background: transparent;
   border: none;

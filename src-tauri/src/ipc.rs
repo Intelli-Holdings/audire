@@ -214,6 +214,23 @@ pub fn append_note(
     Ok(())
 }
 
+#[tauri::command]
+pub fn replace_meeting_notes(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    text: String,
+) -> Result<()> {
+    state.store.replace_meeting_notes(&meeting_id, &text)
+}
+
+#[tauri::command]
+pub fn delete_meeting(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<()> {
+    state.store.delete_meeting(&meeting_id)
+}
+
 // ---- run_recipe ----
 
 #[derive(Debug, Serialize)]

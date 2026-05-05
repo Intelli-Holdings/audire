@@ -18,10 +18,11 @@ export function initSidebar(state, viewChangeCallback) {
 }
 
 export function showView(viewName) {
+  const navViewName = viewName === 'notes' ? 'mynotes' : viewName;
   // Update nav items
   document.querySelectorAll('.nav-item').forEach(i => {
-    const active = i.dataset.view === viewName
-      && !(viewName === 'mynotes' && appState.selectedFolderId && i.dataset.view === 'mynotes');
+    const active = i.dataset.view === navViewName
+      && !(navViewName === 'mynotes' && appState.selectedFolderId && i.dataset.view === 'mynotes');
     i.classList.toggle('active', active);
     if (active) {
       i.setAttribute('aria-current', 'page');
@@ -31,7 +32,7 @@ export function showView(viewName) {
   });
   // Update folder items
   document.querySelectorAll('.sidebar-folder-item').forEach(i => {
-    const active = viewName === 'mynotes'
+    const active = (viewName === 'mynotes' || viewName === 'notes')
       && i.dataset.folderId
       && Number(i.dataset.folderId) === appState.selectedFolderId;
     i.classList.toggle('active', active);
